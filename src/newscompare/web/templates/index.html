@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NewsCompare</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { --bg: #fafafa; --bg-panel: #fff; --border: #e0e0e0; --text: #111; --text-muted: #555; --link: #1976d2; --sidebar-bg: #f5f5f5; --row-border: rgba(0,0,0,0.06); }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1a1a1a; --bg-panel: #2d2d2d; --border: #555; --text: #f0f0f0; --text-muted: #b8b8b8; --link: #64b5f6; --sidebar-bg: #252525; --row-border: rgba(255,255,255,0.08); }
+    }
+    body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    .app-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 260px; min-width: 200px; max-width: 400px; resize: horizontal; overflow: auto; padding: 1rem; background: var(--sidebar-bg); border-right: 1px solid var(--border); }
+    .sidebar h1 { margin: 0 0 1rem 0; font-size: 1.25rem; }
+    .sidebar .nav-all-articles { display: block; width: 100%; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; text-align: left; cursor: pointer; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; color: var(--link); font-size: 0.95rem; text-decoration: none; }
+    .sidebar .nav-all-articles:hover { background: var(--border); }
+    .sidebar .nav-all-articles.active { font-weight: 600; background: var(--link); color: #fff; border-color: var(--link); }
+    .sidebar .nav-timeline { display: block; width: 100%; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; text-align: left; cursor: pointer; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; color: var(--link); font-size: 0.95rem; text-decoration: none; }
+    .sidebar .nav-timeline:hover { background: var(--border); }
+    .sidebar .nav-timeline.active { font-weight: 600; background: var(--link); color: #fff; border-color: var(--link); }
+    .sidebar-topics { display: flex; flex-direction: column; gap: 0.4rem; }
+    .sidebar .topic-card { padding: 0.6rem 0.75rem; border-radius: 6px; cursor: pointer; background: var(--bg-panel); border: 1px solid var(--border); }
+    .sidebar .topic-card:hover { border-color: var(--link); }
+    .sidebar .topic-card.active { border-color: var(--link); background: rgba(25, 118, 210, 0.1); }
+    .sidebar .topic-card h3 { margin: 0 0 0.15rem 0; font-size: 0.9rem; }
+    .sidebar .topic-card .count { font-size: 0.75rem; color: var(--text-muted); }
+    .main-content { flex: 1; min-width: 0; padding: 1rem; overflow: auto; }
+    .content-panel { display: none; }
+    .content-panel.visible { display: block; }
+    .no-topics { padding: 0.75rem; font-size: 0.85rem; color: var(--text-muted); }
+    .timeline { margin-bottom: 1.5rem; }
+    .timeline-day { background: var(--bg-panel); border-left: 3px solid var(--link); padding: 0.75rem 1rem; margin-bottom: 0.5rem; border-radius: 0 8px 8px 0; }
+    .timeline-day h4 { margin: 0 0 0.5rem 0; font-size: 0.875rem; color: var(--text-muted); }
+    .topic-articles-panel { max-height: min(50vh, 400px); display: flex; flex-direction: column; margin-bottom: 1rem; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .sources-table { display: flex; flex: 1; min-height: 0; width: 100%; }
+    .source-col { display: flex; flex-direction: column; flex: 1; min-width: 0; border-right: 1px solid var(--border); }
+    .source-col:last-child { border-right: none; }
+    .source-col.hidden { display: none; }
+    .source-col-header { padding: 0.5rem 0.75rem; background: var(--sidebar-bg); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .source-col-header { font-size: 0.9rem; font-weight: 600; }
+    .source-col-body { overflow-y: auto; flex: 1; min-height: 0; padding: 0.5rem; }
+    .source-col .article { margin-bottom: 0.6rem; font-size: 0.85rem; }
+    .source-col .article a { color: var(--link); text-decoration: none; display: block; }
+    .source-col .article a:hover { text-decoration: underline; }
+    .source-col .article .time { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+    .claims-section { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-top: 0; }
+    .claims-section h3 { margin: 0 0 0.75rem 0; }
+    .claims-summary { margin-bottom: 0.75rem; padding: 0.5rem 0; font-size: 0.9rem; color: var(--text-muted); }
+    .claims-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+    .claims-summary .summary-text { margin-right: 0.25rem; font-size: 0.875rem; color: var(--text-muted); }
+    .filter-tag { display: inline-block; cursor: pointer; padding: 0.35rem 0.65rem; border-radius: 999px; border: 1px solid transparent; font-size: 0.85rem; font-weight: 500; }
+    .filter-tag:hover { opacity: 0.9; }
+    .filter-tag.agreed { background: #c8e6c9; color: #1b5e20; }
+    .filter-tag.agreed.active { background: #2e7d32; color: #fff; }
+    .filter-tag.uncorroborated { background: #ffe0b2; color: #e65100; }
+    .filter-tag.uncorroborated.active { background: #f57c00; color: #fff; }
+    .filter-tag.conflict { background: #ffcdd2; color: #b71c1c; }
+    .filter-tag.conflict.active { background: #c62828; color: #fff; }
+    .filter-tag.inactive { opacity: 0.45; }
+    .regenerate-btn { margin-left: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.8rem; cursor: pointer; background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); }
+    .regenerate-btn:hover { opacity: 0.9; }
+    .article-title-hover { cursor: pointer; }
+    #inspect-popover { display: none; position: fixed; z-index: 1000; max-width: 420px; max-height: 320px; overflow: auto; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); padding: 0.75rem; font-size: 0.8rem; }
+    #inspect-popover.visible { display: block; }
+    #inspect-popover .story-summary { margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--text); }
+    #inspect-popover .body-preview { white-space: pre-wrap; word-break: break-word; margin-bottom: 0.5rem; color: var(--text); }
+    #inspect-popover .claims-list { margin: 0; padding-left: 1rem; }
+    #inspect-popover .claims-list li { margin: 0.25rem 0; }
+    .claim { margin: 0.5rem 0; padding: 0.5rem; border-radius: 4px; font-size: 0.9rem; }
+    .claim.agreed { background: #e8f5e9; }
+    .claim.uncorroborated { background: #fff8e1; }
+    .claim.conflict { background: #ffebee; }
+    .claim .source { font-weight: 600; color: var(--text); }
+    .claim .conflict-note { font-size: 0.8rem; color: #c62828; margin-top: 0.25rem; }
+    .claim .matched-sources { font-size: 0.8rem; color: #2e7d32; margin-top: 0.2rem; }
+    .claim-card { margin-bottom: 1rem; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+    .claim-card .card-heading { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; padding: 0.35rem 0.6rem; }
+    .claim-card.agreed .card-heading { background: #c8e6c9; color: #1b5e20; }
+    .claim-card.conflict .card-heading { background: #ffcdd2; color: #b71c1c; }
+    .claim-card.uncorroborated .card-heading { background: #fff9c4; color: #f57f17; }
+    .claim-card .card-body { padding: 0.6rem 0.75rem; }
+    .claim-card .claim-row { margin: 0.4rem 0; padding: 0.35rem 0; border-bottom: 1px solid var(--row-border); }
+    .claim-card .claim-row:last-child { border-bottom: none; }
+    .claim-card .claim-row .src { font-weight: 600; font-size: 0.85rem; color: var(--text); }
+    .claim-card .claim-row .text { font-size: 0.9rem; color: var(--text); margin-top: 0.2rem; }
+    .claim-card.conflict .vs { text-align: center; font-weight: 700; color: #c62828; margin: 0.3rem 0; font-size: 0.85rem; }
+    .search-bar { margin-bottom: 0.75rem; }
+    .search-bar input { width: 100%; max-width: 320px; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; background: var(--bg-panel); color: var(--text); }
+    .search-bar input::placeholder { color: var(--text-muted); }
+    .past-reports { margin-bottom: 1rem; }
+    .past-reports h4 { margin: 0 0 0.5rem 0; font-size: 0.9rem; }
+    .past-reports-list { max-height: 160px; overflow-y: auto; font-size: 0.85rem; }
+    .past-reports-list .report-item { padding: 0.5rem 0.6rem; border-radius: 6px; cursor: pointer; margin-bottom: 0.3rem; background: var(--sidebar-bg); border: 1px solid var(--border); }
+    .past-reports-list .report-item:hover { border-color: var(--link); }
+    .past-reports-list .report-item:focus { outline: 2px solid var(--link); outline-offset: 2px; }
+    .past-reports-list .report-item .report-meta { color: var(--text-muted); font-size: 0.8rem; }
+    .filters { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .filters h4 { margin: 0 0 0.5rem 0; font-size: 0.875rem; }
+    .filters label { margin-right: 1rem; font-size: 0.9rem; cursor: pointer; }
+    .filters .row { margin-bottom: 0.5rem; }
+    .back { margin-bottom: 1rem; }
+    .back button { padding: 0.5rem 1rem; cursor: pointer; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+    .loading { color: var(--text-muted); padding: 1rem; }
+    .articles-by-source-panel { max-height: min(55vh, 450px); display: flex; flex-direction: column; margin-bottom: 1rem; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: 100%; }
+    .articles-by-source-panel .sources-table { flex: 1; min-height: 0; }
+    .source-col .article-with-cb { display: flex; align-items: flex-start; gap: 0.35rem; margin-bottom: 0.5rem; }
+    .source-col .article-with-cb input { margin-top: 0.2rem; flex-shrink: 0; }
+    .view-toggle { margin-bottom: 1rem; }
+    .view-toggle button { margin-right: 0.5rem; padding: 0.4rem 0.8rem; cursor: pointer; border: 1px solid var(--border); background: var(--bg-panel); border-radius: 4px; color: var(--text); }
+    .view-toggle button.active { background: var(--link); color: #fff; border-color: var(--link); }
+    .hint { font-size: 0.875rem; color: var(--text-muted); margin: -0.25rem 0 0.5rem 0; }
+    .source-toggles { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; align-items: center; }
+    .source-toggles .label { font-size: 0.875rem; color: var(--text-muted); margin-right: 0.25rem; }
+    .source-toggle-pill { padding: 0.3rem 0.6rem; border-radius: 999px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border); background: var(--sidebar-bg); }
+    .source-toggle-pill:hover { opacity: 0.9; }
+    .source-toggle-pill.active { background: var(--link); color: #fff; border-color: var(--link); }
+    .source-toggle-pill.inactive { opacity: 0.6; }
+    .progress-bar-wrap { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin: 0.5rem 0; }
+    .progress-bar-wrap.indeterminate .bar { width: 30%; animation: progress-indeterminate 1.2s ease-in-out infinite; }
+    @keyframes progress-indeterminate { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+    .progress-bar-wrap .bar { height: 100%; background: var(--link); }
+    .claims-block { margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .claims-block summary { padding: 0.5rem 0.75rem; cursor: pointer; font-weight: 600; background: var(--sidebar-bg); list-style: none; }
+    .claims-block summary::-webkit-details-marker { display: none; }
+    .claims-block .claims-block-body { padding: 0.5rem 0.75rem; }
+    .timeline-day { margin-bottom: 1.5rem; border-left: 3px solid var(--link); padding-left: 0.75rem; }
+    .timeline-day h4 { margin: 0 0 0.5rem 0; font-size: 0.95rem; color: var(--text-muted); }
+    .timeline-day .article { margin-bottom: 0.5rem; font-size: 0.9rem; }
+    .timeline-day .article a { color: var(--link); text-decoration: none; }
+    .timeline-day .article a:hover { text-decoration: underline; }
+    .timeline-day .article .time { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem; }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar" id="sidebar">
+      <h1>NewsCompare</h1>
+      <a href="#" class="nav-all-articles active" id="nav-all-articles">All articles</a>
+      <a href="#" class="nav-timeline" id="nav-timeline">Timeline</a>
+      <div id="topics-loading" class="loading">Loading topics…</div>
+      <div id="topics-none" class="no-topics" style="display:none;">
+        No topics yet. Run: <code>newscompare extract-topics</code> (after <code>newscompare fetch</code>).
+      </div>
+      <div id="sidebar-topics" class="sidebar-topics" style="display:none;"></div>
+    </aside>
+    <main class="main-content">
+      <div id="content-all-articles" class="content-panel visible">
+        <div class="search-bar">
+          <input type="text" id="articles-search" placeholder="Search articles by title or source…" />
+        </div>
+        <p>Select at least 2 articles from any columns, then click Compare. Hover article titles to inspect.</p>
+        <h3>Articles by source</h3>
+        <p class="hint">Use the pills above to show or hide source columns. Select articles with the checkboxes, then click Compare selected.</p>
+        <div id="articles-source-toggles" class="source-toggles"></div>
+        <div id="articles-by-source" class="topic-articles-panel">
+          <div id="articles-sources-table" class="sources-table"></div>
+        </div>
+        <button id="compare-btn">Compare selected</button>
+        <div id="compare-results"></div>
+      </div>
+      <div id="content-timeline" class="content-panel">
+        <h3>Articles by date</h3>
+        <p class="hint">All fetched articles grouped by day (last 30 days). Shows how stories develop over time.</p>
+        <div class="search-bar">
+          <input type="text" id="timeline-search" placeholder="Filter by title or source…" />
+        </div>
+        <div id="timeline-days" class="timeline-days"></div>
+      </div>
+      <div id="content-topic-detail" class="content-panel">
+        <div class="back"><button id="back-btn">← All articles</button></div>
+        <h2 id="topic-title"></h2>
+        <div id="topic-loading" class="loading" style="display:none;">Loading comparison…</div>
+        <div id="topic-content" style="display:none;">
+          <div class="search-bar">
+            <input type="text" id="topic-search" placeholder="Search articles by title or source…" />
+          </div>
+          <h3>Articles by source</h3>
+          <p class="hint">Use the pills above to show or hide source columns and include them in the comparison. Hover article titles to inspect.</p>
+          <div id="source-toggles" class="source-toggles"></div>
+          <div id="sources-panel" class="topic-articles-panel">
+            <div id="sources-table" class="sources-table"></div>
+          </div>
+          <div id="compare-progress" class="progress-bar-wrap indeterminate" style="display:none;"><div class="bar"></div></div>
+          <div class="past-reports">
+            <h4>Past comparisons</h4>
+            <div id="past-reports-list" class="past-reports-list">Loading…</div>
+          </div>
+          <div class="claims-section">
+            <h3>Claims <button type="button" id="regenerate-btn" class="regenerate-btn" title="Re-run comparison and save">Regenerate</button></h3>
+            <div id="claims-summary" class="claims-summary"></div>
+            <div id="claims"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="inspect-popover"></div>
+
+  <script>
+    const state = { topics: [], selectedTopicId: null, articles: [], topicData: null, enabledSources: new Set(), filterLabels: new Set(['agreed','conflict']), searchQuery: '', visibleSourcesAll: null };
+
+    function setMainView(panel) {
+      document.getElementById('content-all-articles').classList.toggle('visible', panel === 'all-articles');
+      document.getElementById('content-timeline').classList.toggle('visible', panel === 'timeline');
+      document.getElementById('content-topic-detail').classList.toggle('visible', panel === 'topic-detail');
+      document.getElementById('nav-all-articles').classList.toggle('active', panel === 'all-articles');
+      document.getElementById('nav-timeline').classList.toggle('active', panel === 'timeline');
+      document.querySelectorAll('.sidebar .topic-card').forEach(c => c.classList.toggle('active', c.dataset.topicId === state.selectedTopicId));
+      if (panel === 'all-articles') ensureArticlesLoaded();
+      if (panel === 'timeline') loadTimeline();
+    }
+
+    async function loadTopics() {
+      const el = document.getElementById('topics-loading');
+      const none = document.getElementById('topics-none');
+      const sidebarTopics = document.getElementById('sidebar-topics');
+      try {
+        const r = await fetch('/api/topics');
+        const data = await r.json();
+        state.topics = data.topics || [];
+        el.style.display = 'none';
+        if (state.topics.length === 0) {
+          none.style.display = 'block';
+          sidebarTopics.style.display = 'none';
+        } else {
+          none.style.display = 'none';
+          sidebarTopics.style.display = 'flex';
+          sidebarTopics.innerHTML = state.topics.map(t =>
+            `<div class="topic-card" data-topic-id="${escapeHtml(t.id)}">
+              <h3>${escapeHtml(t.label)}</h3>
+              <span class="count">${t.article_count} articles</span>
+            </div>`
+          ).join('');
+          sidebarTopics.querySelectorAll('.topic-card').forEach(card => {
+            card.onclick = () => selectTopic(card.dataset.topicId);
+          });
+        }
+      } catch (e) {
+        el.textContent = 'Failed to load topics.';
+      }
+    }
+
+    function selectTopic(id) {
+      state.selectedTopicId = id;
+      setMainView('topic-detail');
+      document.getElementById('topic-loading').style.display = 'block';
+      document.getElementById('topic-content').style.display = 'none';
+      const progressEl = document.getElementById('compare-progress');
+      if (progressEl) progressEl.style.display = 'block';
+      const t = state.topics.find(x => x.id === id);
+      document.getElementById('topic-title').textContent = t ? t.label : id;
+      const loadingEl = document.getElementById('topic-loading');
+      fetch(`/api/topics/${encodeURIComponent(id)}`).then(r => r.json()).then(detail => {
+        const n = (detail.articles || []).length;
+        loadingEl.textContent = n ? `Comparing ${n} article${n !== 1 ? 's' : ''}…` : 'Loading…';
+      }).catch(() => {});
+      fetch(`/api/topics/${encodeURIComponent(id)}/compare`).then(r => r.json()).then(data => {
+        document.getElementById('topic-loading').style.display = 'none';
+        if (progressEl) progressEl.style.display = 'none';
+        document.getElementById('topic-content').style.display = 'block';
+        state.topicData = data;
+        state.enabledSources = new Set(data.sources || []);
+        state.filterLabels = new Set(['agreed','conflict']);
+        const topicSearchEl = document.getElementById('topic-search');
+        if (topicSearchEl) topicSearchEl.value = state.searchQuery || '';
+        renderTopicDetail(data);
+        setMainView('topic-detail');
+      }).catch(() => {
+        loadingEl.textContent = 'Failed to load topic.';
+        if (progressEl) progressEl.style.display = 'none';
+      });
+    }
+
+    async function fetchCompareWithSources(sourcesList, regenerate) {
+      const id = state.selectedTopicId;
+      if (!id || !sourcesList.length) return state.topicData;
+      const params = new URLSearchParams({ sources: sourcesList.join(',') });
+      if (regenerate) params.set('regenerate', '1');
+      const r = await fetch(`/api/topics/${id}/compare?${params}`);
+      const data = await r.json();
+      state.topicData = { ...state.topicData, claims: data.claims || [], articles: data.articles || [], by_source: data.by_source || state.topicData?.by_source, sources: data.sources || state.topicData?.sources };
+      return state.topicData;
+    }
+
+    function matchSearch(article, query) {
+      if (!query || !query.trim()) return true;
+      const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const title = (article.title || '').toLowerCase();
+      const src = (article.source_id || '').toLowerCase();
+      return words.some(w => title.indexOf(w) !== -1 || src.indexOf(w) !== -1);
+    }
+
+    function renderTopicDetail(data) {
+      data = data || state.topicData;
+      if (!data) return;
+      const bySource = data.by_source || {};
+      const allSources = data.sources || Object.keys(bySource);
+      const query = (state.searchQuery || '').trim();
+
+      const togglesEl = document.getElementById('source-toggles');
+      if (togglesEl) {
+        togglesEl.innerHTML = '<span class="label">Sources:</span>' + allSources.map(src => {
+          const enabled = state.enabledSources.has(src);
+          const count = (bySource[src] || []).length;
+          return '<span class="source-toggle-pill ' + (enabled ? 'active' : 'inactive') + '" data-source="' + escapeHtml(src) + '" title="' + (enabled ? 'Hide' : 'Show') + '">' + escapeHtml(src) + ' (' + count + ')</span>';
+        }).join('');
+        togglesEl.querySelectorAll('.source-toggle-pill').forEach(pill => {
+          pill.onclick = async () => {
+            const src = pill.dataset.source;
+            const enabled = state.enabledSources.has(src);
+            if (enabled) state.enabledSources.delete(src); else state.enabledSources.add(src);
+            pill.classList.toggle('active', state.enabledSources.has(src));
+            pill.classList.toggle('inactive', !state.enabledSources.has(src));
+            const col = document.querySelector('.source-col[data-source="' + src + '"]');
+            if (col) col.classList.toggle('hidden', !state.enabledSources.has(src));
+            const list = [...state.enabledSources];
+            const summaryEl = document.getElementById('claims-summary');
+            if (list.length >= 1) {
+              if (summaryEl) summaryEl.textContent = 'Updating comparison…';
+              const progressEl = document.getElementById('compare-progress');
+              if (progressEl) progressEl.style.display = 'block';
+              const updated = await fetchCompareWithSources(list, false);
+              if (progressEl) progressEl.style.display = 'none';
+              renderClaimsOnly(updated);
+            } else {
+              renderClaimsOnly(state.topicData);
+            }
+          };
+        });
+      }
+
+      const tableEl = document.getElementById('sources-table');
+      tableEl.innerHTML = '';
+      allSources.forEach(src => {
+        const enabled = state.enabledSources.has(src);
+        const col = document.createElement('div');
+        col.className = 'source-col' + (enabled ? '' : ' hidden');
+        col.dataset.source = src;
+        let arts = bySource[src] || [];
+        if (query) arts = arts.filter(a => matchSearch(a, query));
+        const header = document.createElement('div');
+        header.className = 'source-col-header';
+        header.textContent = src + ' (' + arts.length + ')';
+        col.appendChild(header);
+        const body = document.createElement('div');
+        body.className = 'source-col-body';
+        arts.forEach(a => {
+          const time = (a.published_at || a.fetched_at || '').slice(0, 16) || '';
+          const div = document.createElement('div');
+          div.className = 'article';
+          const link = document.createElement('a');
+          link.href = a.url || '#';
+          link.target = '_blank';
+          link.textContent = a.title || '';
+          link.className = 'article-title-hover';
+          link.dataset.articleId = a.id;
+          div.appendChild(link);
+          const timeDiv = document.createElement('div');
+          timeDiv.className = 'time';
+          timeDiv.textContent = time;
+          div.appendChild(timeDiv);
+          body.appendChild(div);
+          setupInspectHover(link);
+        });
+        col.appendChild(body);
+        tableEl.appendChild(col);
+      });
+
+      renderClaimsOnly(data);
+      loadPastReportsList();
+    }
+
+    async function loadPastReportsList() {
+      const el = document.getElementById('past-reports-list');
+      if (!el) return;
+      try {
+        const r = await fetch('/api/reports');
+        const data = await r.json();
+        const reports = data.reports || [];
+        if (reports.length === 0) {
+          el.innerHTML = '<p class="report-meta">No saved comparisons yet. Run a comparison and it will be saved.</p>';
+          return;
+        }
+        el.innerHTML = reports.map(r => {
+          const date = (r.created_at || '').slice(0, 16).replace('T', ' ');
+          const sources = (r.sources_key || '') ? r.sources_key.split(',').join(', ') : 'all sources';
+          const label = (r.topic_label || r.topic_id || 'Topic').slice(0, 50);
+          const claimCount = r.claim_count != null ? r.claim_count : (r.claims_count != null ? r.claims_count : null);
+          const meta = date + ' · ' + escapeHtml(sources) + (claimCount != null ? ' · ' + claimCount + ' claims' : '') + ' · Click to open';
+          return '<div class="report-item" role="button" tabindex="0" data-topic-id="' + escapeHtml(r.topic_id) + '" data-sources-key="' + escapeHtml(r.sources_key || '') + '" data-topic-label="' + escapeHtml(label) + '">' +
+            '<strong>' + escapeHtml(label) + '</strong><br><span class="report-meta">' + meta + '</span></div>';
+        }).join('');
+        const openReport = (item) => loadReport({
+          topic_id: item.dataset.topicId,
+          sources_key: item.dataset.sourcesKey || '',
+          topic_label: item.dataset.topicLabel || ''
+        });
+        el.querySelectorAll('.report-item').forEach(item => {
+          item.onclick = () => openReport(item);
+          item.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openReport(item); } };
+        });
+      } catch (e) {
+        el.innerHTML = '<p class="report-meta">Failed to load.</p>';
+      }
+    }
+
+    async function loadReport(report) {
+      const topicId = report.topic_id;
+      const sourcesKey = report.sources_key || '';
+      const topicLabel = report.topic_label || '';
+      state.selectedTopicId = topicId;
+      setMainView('topic-detail');
+      document.getElementById('topic-loading').style.display = 'none';
+      document.getElementById('topic-content').style.display = 'block';
+      document.getElementById('topic-title').textContent = topicLabel || topicId;
+      const params = sourcesKey ? '?sources=' + encodeURIComponent(sourcesKey) : '';
+      const r = await fetch('/api/topics/' + encodeURIComponent(topicId) + '/compare' + params);
+      const data = await r.json();
+      state.topicData = data;
+      state.enabledSources = new Set(data.sources || []);
+      state.filterLabels = new Set(['agreed', 'conflict']);
+      renderTopicDetail(data);
+      setMainView('topic-detail');
+    }
+
+    function renderClaimsOnly(data) {
+      if (!data) return;
+      const allClaims = data.claims || [];
+      const typeOrder = { agreed: 0, uncorroborated: 1, conflict: 2 };
+      const claimsFiltered = allClaims.filter(c => state.filterLabels.has(c.label));
+      const claimsSorted = claimsFiltered.slice().sort((a, b) => (typeOrder[a.label] ?? 3) - (typeOrder[b.label] ?? 3));
+      const agreedCount = allClaims.filter(c => c.label === 'agreed').length;
+      const uncorrCount = allClaims.filter(c => c.label === 'uncorroborated').length;
+      const conflictCount = allClaims.filter(c => c.label === 'conflict').length;
+      const summaryEl = document.getElementById('claims-summary');
+      if (summaryEl) {
+        if (allClaims.length === 0) {
+          summaryEl.innerHTML = 'No claims yet.';
+        } else {
+          const agreedCls = 'filter-tag agreed' + (state.filterLabels.has('agreed') ? ' active' : ' inactive');
+          const uncorrCls = 'filter-tag uncorroborated' + (state.filterLabels.has('uncorroborated') ? ' active' : ' inactive');
+          const conflictCls = 'filter-tag conflict' + (state.filterLabels.has('conflict') ? ' active' : ' inactive');
+          summaryEl.innerHTML = '<span class="summary-text">Filter:</span>' +
+            '<button type="button" class="' + agreedCls + '" data-label="agreed">' + agreedCount + ' agreed</button>' +
+            '<button type="button" class="' + uncorrCls + '" data-label="uncorroborated">' + uncorrCount + ' single-source</button>' +
+            '<button type="button" class="' + conflictCls + '" data-label="conflict">' + conflictCount + ' conflict</button>';
+          summaryEl.querySelectorAll('.filter-tag').forEach(btn => {
+            btn.onclick = () => {
+              const label = btn.dataset.label;
+              if (state.filterLabels.has(label)) state.filterLabels.delete(label); else state.filterLabels.add(label);
+              renderClaimsOnly(state.topicData);
+            };
+          });
+        }
+      }
+      const claimsEl = document.getElementById('claims');
+      if (claimsSorted.length === 0) {
+        claimsEl.innerHTML = '<p>No claims match the selected filters. Toggle tags above to show more.</p>';
+        return;
+      }
+      const conflicts = claimsFiltered.filter(c => c.label === 'conflict');
+      const agreed = claimsFiltered.filter(c => c.label === 'agreed');
+      const uncorr = claimsFiltered.filter(c => c.label === 'uncorroborated');
+      let html = '';
+      if (conflicts.length) html += '<details class="claims-block" open><summary>Conflicts (' + conflicts.length + ')</summary><div class="claims-block-body">' + conflicts.map(claimCardHtml).join('') + '</div></details>';
+      if (agreed.length) html += '<details class="claims-block"><summary>Agreed (' + agreed.length + ')</summary><div class="claims-block-body">' + agreed.map(claimCardHtml).join('') + '</div></details>';
+      if (uncorr.length) html += '<details class="claims-block"><summary>Single-source (' + uncorr.length + ')</summary><div class="claims-block-body">' + uncorr.map(claimCardHtml).join('') + '</div></details>';
+      claimsEl.innerHTML = html || '<p>No claims match the selected filters.</p>';
+    }
+
+    const inspectCache = {};
+    let inspectShowTimer = null;
+    let inspectHideTimer = null;
+
+    function setupInspectHover(linkEl) {
+      const articleId = linkEl.dataset.articleId;
+      if (!articleId) return;
+      linkEl.addEventListener('mouseenter', () => {
+        clearTimeout(inspectHideTimer);
+        inspectShowTimer = setTimeout(() => showInspectPopover(linkEl, articleId), 400);
+      });
+      linkEl.addEventListener('mouseleave', () => {
+        clearTimeout(inspectShowTimer);
+        inspectHideTimer = setTimeout(() => hideInspectPopover(), 150);
+      });
+    }
+
+    function hideInspectPopover() {
+      const pop = document.getElementById('inspect-popover');
+      pop.classList.remove('visible');
+      pop.onmouseenter = null;
+      pop.onmouseleave = null;
+    }
+
+    async function showInspectPopover(anchorEl, articleId) {
+      const pop = document.getElementById('inspect-popover');
+      pop.innerHTML = 'Loading…';
+      const rect = anchorEl.getBoundingClientRect();
+      pop.style.left = Math.min(rect.left, window.innerWidth - 430) + 'px';
+      let top = rect.bottom + 4;
+      if (top + 320 > window.innerHeight) top = rect.top - 324;
+      pop.style.top = Math.max(8, top) + 'px';
+      pop.classList.add('visible');
+      pop.onmouseenter = () => clearTimeout(inspectHideTimer);
+      pop.onmouseleave = () => { inspectHideTimer = setTimeout(() => hideInspectPopover(), 150); };
+      if (inspectCache[articleId]) {
+        pop.innerHTML = inspectCache[articleId];
+        return;
+      }
+      try {
+        const r = await fetch('/api/articles/' + encodeURIComponent(articleId));
+        const data = await r.json();
+        let html = '';
+        if ((data.story_summary || '').trim()) {
+          html += '<div class="story-summary"><strong>Story:</strong> ' + escapeHtml((data.story_summary || '').trim()) + '</div>';
+        }
+        const bodyPreview = (data.body || '').slice(0, 800) + ((data.body || '').length > 800 ? '…' : '');
+        html += '<div class="body-preview">' + escapeHtml(bodyPreview) + '</div>';
+        if ((data.claims || []).length) {
+          html += '<div>Facts:</div><ul class="claims-list">' + (data.claims.map(c => '<li>' + escapeHtml(c) + '</li>').join('')) + '</ul>';
+        } else {
+          html += '<div>No facts extracted yet.</div>';
+        }
+        inspectCache[articleId] = html;
+        pop.innerHTML = html;
+      } catch (e) {
+        pop.innerHTML = 'Failed to load.';
+      }
+    }
+
+    document.getElementById('back-btn').onclick = () => {
+      state.selectedTopicId = null;
+      setMainView('all-articles');
+    };
+    document.getElementById('nav-all-articles').addEventListener('click', (e) => {
+      e.preventDefault();
+      state.selectedTopicId = null;
+      setMainView('all-articles');
+    });
+    document.getElementById('nav-timeline').addEventListener('click', (e) => {
+      e.preventDefault();
+      state.selectedTopicId = null;
+      setMainView('timeline');
+    });
+    document.getElementById('timeline-search').oninput = () => {
+      state.searchQuery = document.getElementById('timeline-search').value;
+      if (document.getElementById('content-timeline').classList.contains('visible')) loadTimeline();
+    };
+
+    document.getElementById('topic-search').oninput = () => {
+      state.searchQuery = document.getElementById('topic-search').value;
+      renderTopicDetail();
+    };
+    document.getElementById('articles-search').oninput = () => {
+      state.searchQuery = document.getElementById('articles-search').value;
+      renderArticles();
+    };
+
+    document.getElementById('regenerate-btn').onclick = async () => {
+      const id = state.selectedTopicId;
+      if (!id) return;
+      const list = [...state.enabledSources];
+      if (list.length < 1) return;
+      const summaryEl = document.getElementById('claims-summary');
+      if (summaryEl) summaryEl.textContent = 'Regenerating comparison…';
+      const progressEl = document.getElementById('compare-progress');
+      if (progressEl) progressEl.style.display = 'block';
+      const updated = await fetchCompareWithSources(list, true);
+      if (progressEl) progressEl.style.display = 'none';
+      renderTopicDetail(updated);
+    };
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function ensureArticlesLoaded() {
+      if (state.articles.length === 0) {
+        fetch('/api/articles').then(r => r.json()).then(d => { state.articles = d.articles || []; renderArticles(); });
+      } else renderArticles();
+    }
+    async function loadTimeline() {
+      const el = document.getElementById('timeline-days');
+      if (!el) return;
+      el.innerHTML = '<p class="loading">Loading timeline…</p>';
+      try {
+        const r = await fetch('/api/articles/timeline?days=30');
+        const data = await r.json();
+        const days = data.days || [];
+        if (days.length === 0) {
+          el.innerHTML = '<p class="report-meta">No articles in the last 30 days. Run fetch to add articles.</p>';
+          return;
+        }
+        const query = (state.searchQuery || '').trim().toLowerCase();
+        let html = '';
+        days.forEach(day => {
+          let arts = day.articles || [];
+          if (query) arts = arts.filter(a => ((a.title || '').toLowerCase().indexOf(query) !== -1) || ((a.source_id || '').toLowerCase().indexOf(query) !== -1));
+          if (arts.length === 0) return;
+          const dateLabel = day.date === 'unknown' ? 'Unknown date' : day.date;
+          html += '<div class="timeline-day"><h4>' + escapeHtml(dateLabel) + ' (' + arts.length + ')</h4>';
+          arts.forEach(a => {
+            const time = (a.published_at || a.fetched_at || '').slice(0, 16) || '';
+            const link = '<a href="' + escapeHtml(a.url || '#') + '" target="_blank" class="article-title-hover" data-article-id="' + escapeHtml(a.id) + '">' + escapeHtml((a.title || '').slice(0, 100)) + ((a.title || '').length > 100 ? '…' : '') + '</a>';
+            html += '<div class="article">' + link + '<div class="time">' + escapeHtml(a.source_id || '') + ' · ' + escapeHtml(time) + '</div></div>';
+          });
+          html += '</div>';
+        });
+        el.innerHTML = html || '<p class="report-meta">No articles match the filter.</p>';
+        el.querySelectorAll('.article-title-hover').forEach(link => setupInspectHover(link));
+      } catch (e) {
+        el.innerHTML = '<p class="report-meta">Failed to load timeline.</p>';
+      }
+    }
+    function renderArticles() {
+      let list = state.articles || [];
+      const query = (state.searchQuery || '').trim();
+      if (query) list = list.filter(a => matchSearch(a, query));
+      const bySource = {};
+      list.forEach(a => {
+        const src = a.source_id || 'Unknown';
+        if (!bySource[src]) bySource[src] = [];
+        bySource[src].push(a);
+      });
+      const sources = Object.keys(bySource).sort();
+      if (state.visibleSourcesAll === null) state.visibleSourcesAll = new Set(sources);
+      sources.forEach(s => state.visibleSourcesAll.add(s));
+
+      const togglesEl = document.getElementById('articles-source-toggles');
+      if (togglesEl) {
+        togglesEl.innerHTML = '<span class="label">Sources:</span>' + sources.map(src => {
+          const visible = state.visibleSourcesAll.has(src);
+          const count = (bySource[src] || []).length;
+          return '<span class="source-toggle-pill ' + (visible ? 'active' : 'inactive') + '" data-source="' + escapeHtml(src) + '" title="' + (visible ? 'Hide column' : 'Show column') + '">' + escapeHtml(src) + ' (' + count + ')</span>';
+        }).join('');
+        togglesEl.querySelectorAll('.source-toggle-pill').forEach(pill => {
+          pill.onclick = () => {
+            const src = pill.dataset.source;
+            if (state.visibleSourcesAll.has(src)) state.visibleSourcesAll.delete(src); else state.visibleSourcesAll.add(src);
+            pill.classList.toggle('active', state.visibleSourcesAll.has(src));
+            pill.classList.toggle('inactive', !state.visibleSourcesAll.has(src));
+            const col = document.querySelector('#articles-sources-table .source-col[data-source="' + src + '"]');
+            if (col) col.classList.toggle('hidden', !state.visibleSourcesAll.has(src));
+          };
+        });
+      }
+
+      const tableEl = document.getElementById('articles-sources-table');
+      tableEl.innerHTML = '';
+      sources.forEach(src => {
+        const visible = state.visibleSourcesAll.has(src);
+        const col = document.createElement('div');
+        col.className = 'source-col' + (visible ? '' : ' hidden');
+        col.dataset.source = src;
+        const header = document.createElement('div');
+        header.className = 'source-col-header';
+        header.textContent = src + ' (' + (bySource[src].length) + ')';
+        col.appendChild(header);
+        const body = document.createElement('div');
+        body.className = 'source-col-body';
+        bySource[src].forEach(a => {
+          const time = (a.fetched_at || '').slice(0, 16) || '';
+          const wrap = document.createElement('div');
+          wrap.className = 'article-with-cb';
+          const artCb = document.createElement('input');
+          artCb.type = 'checkbox';
+          artCb.className = 'article-cb';
+          artCb.value = a.id;
+          const inner = document.createElement('div');
+          inner.className = 'article';
+          const link = document.createElement('a');
+          link.href = a.url || '#';
+          link.target = '_blank';
+          link.textContent = (a.title || '').slice(0, 80) + ((a.title || '').length > 80 ? '…' : '');
+          link.className = 'article-title-hover';
+          link.dataset.articleId = a.id;
+          const timeDiv = document.createElement('div');
+          timeDiv.className = 'time';
+          timeDiv.textContent = time;
+          inner.appendChild(link);
+          inner.appendChild(timeDiv);
+          wrap.appendChild(artCb);
+          wrap.appendChild(inner);
+          body.appendChild(wrap);
+          setupInspectHover(link);
+        });
+        col.appendChild(body);
+        tableEl.appendChild(col);
+      });
+    }
+
+    function claimCardHtml(c) {
+      if (c.label === 'agreed') {
+        const matched = c.matched_claims || [];
+        let h = '<div class="claim-card agreed"><div class="card-heading">Agreement</div><div class="card-body">';
+        h += '<div class="claim-row"><span class="src">' + escapeHtml(c.source_id) + '</span><div class="text">' + escapeHtml(c.claim_text) + '</div></div>';
+        matched.forEach(m => { h += '<div class="claim-row"><span class="src">' + escapeHtml(m.source_id || '') + '</span><div class="text">' + escapeHtml(m.claim_text || '') + '</div></div>'; });
+        return h + '</div></div>';
+      }
+      if (c.label === 'conflict') {
+        const other = c.conflicting_source_id || 'Other';
+        return '<div class="claim-card conflict"><div class="card-heading">Conflict</div><div class="card-body">' +
+          '<div class="claim-row"><span class="src">' + escapeHtml(c.source_id) + '</span><div class="text">' + escapeHtml(c.claim_text) + '</div></div>' +
+          '<div class="vs">vs</div>' +
+          '<div class="claim-row"><span class="src">' + escapeHtml(other) + '</span><div class="text">' + escapeHtml(c.conflicting_claim || '') + '</div></div></div></div>';
+      }
+      return '<div class="claim-card uncorroborated"><div class="card-heading">Single-source</div><div class="card-body">' +
+        '<div class="claim-row"><span class="src">' + escapeHtml(c.source_id) + '</span><div class="text">' + escapeHtml(c.claim_text) + '</div></div></div></div>';
+    }
+    function renderClaimCards(claims, containerId) {
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      if (!claims.length) { el.innerHTML = '<p>No claims.</p>'; return; }
+      const conflicts = claims.filter(c => c.label === 'conflict');
+      const agreed = claims.filter(c => c.label === 'agreed');
+      const uncorr = claims.filter(c => c.label === 'uncorroborated');
+      let html = '<h3>Claims</h3><p class="claims-summary"><span class="agreed">' + agreed.length + ' agreed</span>, <span class="uncorroborated">' + uncorr.length + ' single-source</span>, <span class="conflict">' + conflicts.length + ' conflict</span></p>';
+      if (conflicts.length) html += '<details class="claims-block" open><summary>Conflicts (' + conflicts.length + ')</summary><div class="claims-block-body">' + conflicts.map(claimCardHtml).join('') + '</div></details>';
+      if (agreed.length) html += '<details class="claims-block"><summary>Agreed (' + agreed.length + ')</summary><div class="claims-block-body">' + agreed.map(claimCardHtml).join('') + '</div></details>';
+      if (uncorr.length) html += '<details class="claims-block"><summary>Single-source (' + uncorr.length + ')</summary><div class="claims-block-body">' + uncorr.map(claimCardHtml).join('') + '</div></details>';
+      el.innerHTML = html;
+    }
+
+    document.getElementById('compare-btn').onclick = async () => {
+      const ids = Array.from(document.querySelectorAll('#content-all-articles .article-cb:checked')).map(el => el.value);
+      if (ids.length < 2) { document.getElementById('compare-results').innerHTML = '<p>Select at least 2 articles.</p>'; return; }
+      document.getElementById('compare-results').innerHTML = '<p>Comparing ' + ids.length + ' articles…</p>';
+      const r = await fetch('/api/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ article_ids: ids }) });
+      const data = await r.json();
+      if (data.error) { document.getElementById('compare-results').innerHTML = '<p>' + data.error + '</p>'; return; }
+      const claims = data.claims || [];
+      renderClaimCards(claims, 'compare-results');
+    };
+
+    loadTopics();
+    ensureArticlesLoaded();
+  </script>
+</body>
+</html>

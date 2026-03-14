@@ -1,0 +1,45 @@
+# Copy to config.yaml and edit.
+# Use only feed URLs that return valid RSS/Atom XML (some return HTML and will fail).
+# skip_enrich_domains: skip fetching full article for these; use feed summary only (fewer 403s).
+feeds:
+  - url: https://feeds.bbci.co.uk/news/rss.xml
+    name: BBC News
+    max_articles: 20
+  - url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+    name: NYT World
+    max_articles: 20
+  - url: http://kanaly.rss.interia.pl/fakt.xml
+    name: Interia
+    max_articles: 20
+  - url: https://www.tvn24.pl/najnowsze.xml
+    name: TVN24
+    max_articles: 20
+  - url: https://www.polsatnews.pl/rss/wszystkie.xml
+    name: Polsat News
+    max_articles: 20
+  - url: https://serwisy.gazeta.pl/pub/rss/najnowsze_wyborcza.xml
+    name: Gazeta Wyborcza
+    max_articles: 20
+
+skip_enrich_domains:
+  - nytimes.com
+  - wyborcza.pl
+
+database: ./newscompare.db
+fetch_timeout_seconds: 10
+# LLM used for story/claim extraction and topic labels. For better quality, use a larger model
+# (e.g. Qwen 2.5/3.5 via Ollama if available: https://huggingface.co/collections/Qwen/qwen35).
+llm:
+  provider: ollama
+  model: llama3.2:3b   # e.g. qwen2.5:7b for better extraction
+  max_tokens: 1024
+  claim_extract_prompt: |
+    Extract only factual claims from the following news text, one short sentence per claim.
+    Output a JSON object with a single key "claims" containing a list of strings. No commentary.
+    Text:
+embedding_model: all-MiniLM-L6-v2
+grouping:
+  hours_window: 24
+  title_similarity_threshold: 0.5
+compare:
+  claim_match_threshold: 0.60
