@@ -11,6 +11,7 @@ import numpy as np
 from newscompare.claims_util import normalize_claim
 from newscompare.embeddings import embed_texts, cosine_similarity_matrix
 from newscompare.storage import get_articles_with_claims
+from newscompare.story_schema import build_claim_embedding_text, build_same_story_embedding_text, parse_story_incident_json
 from newscompare.translation import content_for_compare
 
 logger = logging.getLogger(__name__)
@@ -190,14 +191,14 @@ def compare_claims(
     claim_match_threshold: float = 0.74,
     article_summaries: dict[str, str] | None = None,
     story_similarity_threshold: float = 0.38,
+    article_incidents: dict[str, dict[str, str]] | None = None,
 ) -> list[ClaimWithMeta]:
     """
-    Embed all claims, match by similarity. Agreed = same fact in >= 2 sources (clustered).
-    If article_summaries is provided, only match claims from articles whose story summaries
-    are similar (same story). Use a low threshold (0.38) so different phrasings of the same
-    event still count as same story. Conflict = matched and contradictory.
-    If most results are single-source: lower story_similarity_threshold (e.g. 0.35) or
-    claim_match_threshold (e.g. 0.72), or ensure articles have story summaries.
+    Embed all claims (each claim prefixed with structured incident when available), match by
+    similarity so paraphrases grounded in the same situation align better than raw wording alone.
+
+    If article_summaries is provided, only match claims from articles whose synopsis+incident
+    texts are similar (same story). Conflict = matched and contradictory.
     """
     if not article_claims:
         return []
@@ -238,7 +239,11 @@ def compare_claims(
             if not same_story_pairs:
                 same_story_pairs = None  # no constraint
 
-    texts = [c[2] for c in article_claims]
+    inc_map = article_incidents or {}
+    texts = [
+        build_claim_embedding_text(c[2], inc_map.get(c[0]))
+        for c in article_claims
+    ]
     embs = embed_texts(texts, model_name=embedding_model)
     sim_matrix = cosine_similarity_matrix(embs)
     n = len(article_claims)
@@ -362,17 +367,23 @@ def run_comparison_for_group(
         claims_by_article = get_articles_with_claims(conn, article_ids)
         placeholders = ",".join("?" * len(article_ids))
         rows = conn.execute(
-            f"SELECT id, source_id, url, title, translated_title, translated_body, story_summary FROM articles WHERE id IN ({placeholders})",
+            f"""SELECT id, source_id, url, title, translated_title, translated_body,
+                       story_summary, story_incident_json
+                FROM articles WHERE id IN ({placeholders})""",
             article_ids,
         ).fetchall()
         articles = [dict(r) for r in rows]
     for a in articles:
         a["title"] = content_for_compare(a)[0] or a.get("title") or ""
-    article_summaries = {
-        a["id"]: (a.get("story_summary") or "").strip()
-        for a in articles
-        if (a.get("story_summary") or "").strip()
-    }
+    article_summaries: dict[str, str] = {}
+    article_incidents: dict[str, dict[str, str]] = {}
+    for a in articles:
+        aid = a["id"]
+        inc = parse_story_incident_json(a.get("story_incident_json"))
+        article_incidents[aid] = inc
+        block = build_same_story_embedding_text((a.get("story_summary") or "").strip(), inc)
+        if block.strip():
+            article_summaries[aid] = block
     # Build flat list (article_id, source_id, claim_text)
     article_claims: list[tuple[str, str, str]] = []
     for aid in article_ids:
@@ -389,5 +400,6 @@ def run_comparison_for_group(
         embedding_model=embedding_model,
         claim_match_threshold=claim_match_threshold,
         article_summaries=article_summaries or None,
+        article_incidents=article_incidents or None,
     )
     return articles, claims_meta

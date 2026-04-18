@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
+import json
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
@@ -22,6 +22,7 @@ from newscompare.storage import (
     Storage,
     save_claims,
     save_story_summary,
+    save_story_incident,
     list_topics,
     get_topic,
     get_article_by_id,
@@ -105,6 +106,11 @@ def create_app(config: Config) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Article not found")
             claims = get_claims_for_article(conn, article_id)
         title, body = content_for_compare(article)
+        si_raw = article.get("story_incident_json") or ""
+        try:
+            story_incident = json.loads(si_raw) if si_raw.strip() else {}
+        except json.JSONDecodeError:
+            story_incident = {}
         return {
             "id": article["id"],
             "source_id": article.get("source_id"),
@@ -112,6 +118,7 @@ def create_app(config: Config) -> FastAPI:
             "title": title or article.get("title"),
             "body": body or article.get("body"),
             "story_summary": article.get("story_summary") or "",
+            "story_incident": story_incident if isinstance(story_incident, dict) else {},
             "published_at": article.get("published_at"),
             "fetched_at": article.get("fetched_at"),
             "claims": claims,
@@ -137,9 +144,10 @@ def create_app(config: Config) -> FastAPI:
                     d = dict(zip(["id", "title", "body", "translated_title", "translated_body"], row))
                     title, body = content_for_compare(d)
                     text = (title or "") + "\n\n" + (body or "")
-                    summary, claims = extract_story_and_claims(text, config.llm)
+                    summary, claims, incident = extract_story_and_claims(text, config.llm)
                     save_claims(conn, aid, claims)
                     save_story_summary(conn, aid, summary)
+                    save_story_incident(conn, aid, json.dumps(incident, ensure_ascii=False))
         articles, claims_meta = run_comparison_for_group(
             storage,
             article_ids,
@@ -292,9 +300,10 @@ def create_app(config: Config) -> FastAPI:
                 d = dict(zip(["id", "title", "body", "translated_title", "translated_body"], row))
                 title, body = content_for_compare(d)
                 text = (title or "") + "\n\n" + (body or "")
-                summary, claims = extract_story_and_claims(text, config.llm)
+                summary, claims, incident = extract_story_and_claims(text, config.llm)
                 save_claims(conn, aid, claims)
                 save_story_summary(conn, aid, summary)
+                save_story_incident(conn, aid, json.dumps(incident, ensure_ascii=False))
         logger.info("Running claim comparison (embedding + matching)...")
         arts_list, claims_meta = run_comparison_for_group(
             storage,

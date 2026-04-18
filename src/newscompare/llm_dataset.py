@@ -1,4 +1,4 @@
-"""Extract claims from article text using a local LLM (Ollama)."""
+"""Extract structured story + claims from article text using a local LLM (Ollama)."""
 
 from __future__ import annotations
 
@@ -9,20 +9,31 @@ from typing import Any
 
 from newscompare.claims_util import normalize_claims
 from newscompare.config import LLMConfig
+from newscompare.story_schema import empty_incident, normalize_incident
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROMPT = """Extract a short story summary and verifiable facts from the news text below.
+DEFAULT_PROMPT = """You are a news desk editor. Read the article and output ONE JSON object only (no markdown fences).
 
-First write a STORY SUMMARY: 2–4 sentences that describe what this article is about—the overall picture, main event, and outcome. This helps tell if different articles are covering the same story.
+Tone: descriptive, direct, and decisive — state what happened as plainly as the text allows. Do not hedge with "may" unless the source does. If the article does not state a field, write exactly: "Not stated in the text."
 
-Then extract FACTS: one short sentence per verifiable fact (who did what, when, numbers, decisions). One fact per sentence. Be specific (names, dates, numbers). No meta ("The article says..."). Only facts another source could confirm or contradict.
+Use this schema (all string values; "claims" is an array of strings):
 
-Output a JSON object with two keys:
-- "summary": string (the story summary)
-- "claims": array of strings (the facts)
+- "synopsis": 2–4 sentences. The tight overview: who did what, why it matters, and the upshot. Same firm tone as wire copy.
 
-Example: {"summary": "On 10 March 2026 the Sejm debated X. Minister Y stated that... The vote was postponed.", "claims": ["Marszałek Czarzasty złożył wniosek o odebranie Ziobrze diety.", "Głosowanie zaplanowano na 12 marca."]}
+- "incident": an object with these keys (each value one or two sentences unless "additional_context" needs a short third sentence):
+  - "action": What occurred — the decisive event or move.
+  - "driver": Stated cause, trigger, motive, or precondition (or "Not stated in the text.").
+  - "outcome": Documented result, decision, toll, or declared impact.
+  - "timeframe": When — absolute dates/times or relative timing exactly as given.
+  - "actor": Who initiated or is responsible (person, institution, role).
+  - "affected": Who or what was acted upon — target, scope, victims, beneficiaries, jurisdiction.
+  - "additional_context": Location, legal basis, mechanism, figures, caveats, or other grounding the reader needs (or "None." if nothing material).
+
+- "claims": array of atomic, verifiable facts — one short sentence each (who / what / when / numbers). No meta ("The article says…"). Facts another outlet could confirm or contradict. Maximum 20 items.
+
+Example shape (content is illustrative):
+{"synopsis":"…","incident":{"action":"…","driver":"…","outcome":"…","timeframe":"…","actor":"…","affected":"…","additional_context":"…"},"claims":["…","…"]}
 
 Text:
 """
@@ -65,44 +76,48 @@ def _extract_json_object(s: str) -> str | None:
     return None
 
 
-def _parse_story_and_claims_from_response(raw: str) -> tuple[str, list[str]]:
-    """Parse LLM output for summary + claims. Returns (summary, claims). Falls back to ("", claims) if only claims."""
+def _parse_story_and_claims_from_response(raw: str) -> tuple[str, list[str], dict[str, str]]:
+    """Parse LLM output: (synopsis, claims, incident). Legacy {"summary", "claims"} still supported."""
     raw = raw.strip()
-    summary = ""
+    synopsis = ""
     claims: list[str] = []
+    incident = empty_incident()
     try:
         js = _extract_json_object(raw)
         if js:
             obj = json.loads(js)
-            if "summary" in obj and obj["summary"]:
-                summary = str(obj["summary"]).strip()
-                summary = re.sub(r"\s+", " ", summary)
+            syn_raw = obj.get("synopsis") if "synopsis" in obj else obj.get("summary")
+            if syn_raw is not None:
+                synopsis = str(syn_raw).strip()
+                synopsis = re.sub(r"\s+", " ", synopsis)
+            inc_raw = obj.get("incident")
+            if isinstance(inc_raw, dict):
+                incident = normalize_incident(inc_raw)
             claims_raw = obj.get("claims") or obj.get("facts") or []
             if isinstance(claims_raw, list):
                 claims = normalize_claims([str(c).strip() for c in claims_raw if c])
     except (json.JSONDecodeError, TypeError):
         pass
     if not claims:
-        # Fallback: lines as claims
         lines = [ln.strip() for ln in raw.split("\n") if ln.strip() and not ln.strip().startswith("{")]
         claims = normalize_claims([ln for ln in lines if len(ln) > 10][:20])
-    return summary, claims
+    return synopsis, claims, incident
 
 
 def _parse_claims_from_response(raw: str) -> list[str]:
     """Parse LLM output to list of claim strings. Cap at 20."""
-    _summary, claims = _parse_story_and_claims_from_response(raw)
+    _s, claims, _i = _parse_story_and_claims_from_response(raw)
     return claims
 
 
 def extract_claims_ollama(text: str, config: LLMConfig) -> list[str]:
     """Use Ollama API to extract claims. Requires ollama running and model pulled."""
-    _summary, claims = extract_story_and_claims_ollama(text, config)
+    _summary, claims, _inc = extract_story_and_claims_ollama(text, config)
     return claims
 
 
-def extract_story_and_claims_ollama(text: str, config: LLMConfig) -> tuple[str, list[str]]:
-    """Use Ollama API to extract story summary and facts. Returns (summary, claims)."""
+def extract_story_and_claims_ollama(text: str, config: LLMConfig) -> tuple[str, list[str], dict[str, str]]:
+    """Ollama: synopsis, claims, structured incident dict."""
     try:
         import ollama
     except ImportError:
@@ -113,22 +128,22 @@ def extract_story_and_claims_ollama(text: str, config: LLMConfig) -> tuple[str, 
         response = ollama.chat(
             model=config.model,
             messages=[{"role": "user", "content": prompt}],
-            options={"num_predict": min(config.max_tokens, 1536)},
+            options={"num_predict": min(max(config.max_tokens, 1536), 2048)},
         )
     except Exception as e:
         logger.warning("Ollama chat failed: %s", e)
-        return "", []
+        return "", [], empty_incident()
 
     content = response.get("message", {}).get("content", "") or ""
     return _parse_story_and_claims_from_response(content)
 
 
-def extract_story_and_claims(text: str, config: LLMConfig) -> tuple[str, list[str]]:
-    """Extract story summary and facts. Returns (summary, claims)."""
+def extract_story_and_claims(text: str, config: LLMConfig) -> tuple[str, list[str], dict[str, str]]:
+    """Extract synopsis, claims, and incident. Returns ("", [], empty) if provider unsupported."""
     if config.provider == "ollama":
         return extract_story_and_claims_ollama(text, config)
     logger.warning("Unknown LLM provider %s; returning empty", config.provider)
-    return "", []
+    return "", [], empty_incident()
 
 
 def extract_claims(text: str, config: LLMConfig) -> list[str]:

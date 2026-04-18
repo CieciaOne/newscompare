@@ -73,6 +73,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE articles ADD COLUMN story_summary TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE articles ADD COLUMN story_incident_json TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS claims (
             id TEXT PRIMARY KEY,
@@ -215,6 +219,11 @@ def list_articles_needing_translation(
 def save_story_summary(conn: sqlite3.Connection, article_id: str, summary: str | None) -> None:
     """Set story_summary for an article. Summary should be a short narrative (2–4 sentences)."""
     conn.execute("UPDATE articles SET story_summary = ? WHERE id = ?", (summary or "", article_id))
+
+
+def save_story_incident(conn: sqlite3.Connection, article_id: str, incident_json: str | None) -> None:
+    """Store canonical incident object as JSON string (from structured LLM extract)."""
+    conn.execute("UPDATE articles SET story_incident_json = ? WHERE id = ?", (incident_json or "", article_id))
 
 
 def save_claims(conn: sqlite3.Connection, article_id: str, claims: list[str]) -> None:

@@ -65,6 +65,9 @@
     #inspect-popover { display: none; position: fixed; z-index: 1000; max-width: 420px; max-height: 320px; overflow: auto; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); padding: 0.75rem; font-size: 0.8rem; }
     #inspect-popover.visible { display: block; }
     #inspect-popover .story-summary { margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--text); }
+    #inspect-popover .incident-dl { margin: 0.5rem 0; font-size: 0.8rem; }
+    #inspect-popover .incident-dl dt { font-weight: 600; color: var(--text-muted); margin-top: 0.35rem; }
+    #inspect-popover .incident-dl dd { margin: 0.15rem 0 0 0; padding-left: 0.25rem; color: var(--text); }
     #inspect-popover .body-preview { white-space: pre-wrap; word-break: break-word; margin-bottom: 0.5rem; color: var(--text); }
     #inspect-popover .claims-list { margin: 0; padding-left: 1rem; }
     #inspect-popover .claims-list li { margin: 0.25rem 0; }
@@ -515,8 +518,16 @@
         const data = await r.json();
         let html = '';
         if ((data.story_summary || '').trim()) {
-          html += '<div class="story-summary"><strong>Story:</strong> ' + escapeHtml((data.story_summary || '').trim()) + '</div>';
+          html += '<div class="story-summary"><strong>Synopsis:</strong> ' + escapeHtml((data.story_summary || '').trim()) + '</div>';
         }
+        const incLabels = { action: 'Action', driver: 'Driver / cause', outcome: 'Outcome', timeframe: 'When', actor: 'Actor', affected: 'Affected', additional_context: 'Context' };
+        const si = data.story_incident && typeof data.story_incident === 'object' ? data.story_incident : {};
+        const incParts = [];
+        for (const k of Object.keys(incLabels)) {
+          const v = (si[k] || '').trim();
+          if (v) incParts.push('<dt>' + escapeHtml(incLabels[k]) + '</dt><dd>' + escapeHtml(v) + '</dd>');
+        }
+        if (incParts.length) html += '<dl class="incident-dl">' + incParts.join('') + '</dl>';
         const bodyPreview = (data.body || '').slice(0, 800) + ((data.body || '').length > 800 ? '…' : '');
         html += '<div class="body-preview">' + escapeHtml(bodyPreview) + '</div>';
         if ((data.claims || []).length) {

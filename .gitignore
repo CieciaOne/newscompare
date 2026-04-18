@@ -1,4 +1,5 @@
 .venv
 .pytest*
 *.db
+exports/
 __pycache__

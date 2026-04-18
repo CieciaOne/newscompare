@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -12,7 +15,7 @@ from newscompare.article_extractor import extract_body
 from newscompare.compare import run_comparison_for_group
 from newscompare.config import Config, ConfigError
 from newscompare.exceptions import ExtractionError
-from newscompare.feed_fetcher import fetch_all_feeds
+from newscompare.feed_fetcher import FeedEntry, fetch_all_feeds
 from newscompare.grouping import group_articles
 from newscompare.llm_dataset import extract_story_and_claims
 from newscompare.storage import (
@@ -21,13 +24,51 @@ from newscompare.storage import (
     get_article_by_url,
     save_claims,
     save_story_summary,
+    save_story_incident,
     list_articles_needing_translation,
     update_article_translation,
 )
 from newscompare.topic_extraction import extract_topics
 from newscompare.translation import content_for_compare, translate_article_if_needed
+from newscompare.export_bundle import export_for_analysis
+from newscompare.gdelt_ingest import GDELT_MAX_LOOKBACK_DAYS, iter_gdelt_timerange
 
 console = Console()
+
+
+def _parse_utc_datetime_start(value: str) -> datetime:
+    s = value.strip()
+    if len(s) == 10:
+        d = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return d.replace(hour=0, minute=0, second=0, microsecond=0)
+    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _parse_utc_datetime_end(value: str) -> datetime:
+    s = value.strip()
+    if len(s) == 10:
+        d = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return d.replace(hour=23, minute=59, second=59, microsecond=0)
+    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _entry_outside_since_window(entry: FeedEntry, since_days: int | None) -> bool:
+    """True if entry has parsed published time strictly before cutoff (UTC). Unknown date → keep."""
+    if since_days is None or since_days <= 0:
+        return False
+    if entry.published is None:
+        return False
+    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    pub = entry.published
+    if pub.tzinfo is None:
+        pub = pub.replace(tzinfo=timezone.utc)
+    return pub < cutoff
 
 
 def _load_config(config_path: str | None) -> Config:
@@ -48,8 +89,14 @@ def cli(ctx: click.Context, config: str | None) -> None:
 
 @cli.command()
 @click.option("--enrich/--no-enrich", default=True, help="Fetch full article body from link")
+@click.option(
+    "--since-days",
+    default=None,
+    type=int,
+    help="Only insert items published within last N days (skip older RSS items; unknown publish date still inserted)",
+)
 @click.pass_obj
-def fetch(config: Config, enrich: bool) -> None:
+def fetch(config: Config, enrich: bool, since_days: int | None) -> None:
     """Fetch all configured feeds and store articles."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -58,10 +105,14 @@ def fetch(config: Config, enrich: bool) -> None:
     console.print(f"Fetched [green]{len(entries)}[/green] entries from {len(config.feeds)} feed(s).")
 
     skip_domains = {d.lower() for d in (config.skip_enrich_domains or [])}
+    skipped_age = 0
     with storage.conn() as conn:
         for entry in entries:
             existing = get_article_by_url(conn, entry.link)
             if existing:
+                continue
+            if _entry_outside_since_window(entry, since_days):
+                skipped_age += 1
                 continue
             body = entry.summary
             if enrich and entry.link:
@@ -72,6 +123,8 @@ def fetch(config: Config, enrich: bool) -> None:
                     except ExtractionError as e:
                         logging.warning("Enrich skip %s: %s", entry.link[:60], e)
             insert_article(conn, entry, body)
+    if since_days and skipped_age:
+        console.print(f"Skipped [yellow]{skipped_age}[/yellow] entries older than {since_days} days (by feed date).")
     console.print("Done. Articles stored.")
 
 
@@ -79,9 +132,19 @@ def fetch(config: Config, enrich: bool) -> None:
 @click.option("--group-by", type=click.Choice(["time", "title"]), default="time", help="Grouping strategy")
 @click.option("--hours", default=24, type=int, help="Time window (hours) for grouping")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, writable=True),
+    default=None,
+    help="When using --json, write to this file instead of stdout",
+)
 @click.pass_obj
-def compare(config: Config, group_by: str, hours: int, as_json: bool) -> None:
+def compare(config: Config, group_by: str, hours: int, as_json: bool, output: str | None) -> None:
     """Group articles, extract claims (LLM), compare and print results."""
+    if output and not as_json:
+        console.print("[red]--output requires --json[/red]")
+        raise SystemExit(2)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     storage = Storage(config.database)
 
@@ -106,9 +169,10 @@ def compare(config: Config, group_by: str, hours: int, as_json: bool) -> None:
                 if not existing:
                     title, body = content_for_compare(a)
                     text = (title or "") + "\n\n" + (body or "")
-                    summary, claims = extract_story_and_claims(text, config.llm)
+                    summary, claims, incident = extract_story_and_claims(text, config.llm)
                     save_claims(conn, aid, claims)
                     save_story_summary(conn, aid, summary)
+                    save_story_incident(conn, aid, json.dumps(incident, ensure_ascii=False))
 
         articles, claims_meta = run_comparison_for_group(
             storage,
@@ -134,8 +198,132 @@ def compare(config: Config, group_by: str, hours: int, as_json: bool) -> None:
         else:
             _print_group_rich(articles, claims_meta)
     if as_json:
-        import json
-        console.print(json.dumps(all_results, indent=2))
+        payload = json.dumps(all_results, indent=2)
+        if output:
+            Path(output).write_text(payload, encoding="utf-8")
+            console.print(f"Wrote [green]{output}[/green] ({len(all_results)} group(s)).")
+        else:
+            console.print(payload)
+
+
+@cli.command("export")
+@click.option(
+    "--out-dir",
+    type=click.Path(file_okay=False, writable=True),
+    default=None,
+    help="Output directory (default: exports/UTC-timestamp under cwd)",
+)
+@click.option(
+    "--since-days",
+    default=None,
+    type=int,
+    help="Only export articles (and their claims) with published/fetched time in last N days",
+)
+@click.pass_obj
+def export_cmd(config: Config, out_dir: str | None, since_days: int | None) -> None:
+    """Export stats.json, articles.jsonl, claims.csv, topics.json for offline analysis."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    base = Path(out_dir) if out_dir else Path("exports") / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    storage = Storage(config.database)
+    with storage.conn() as conn:
+        stats = export_for_analysis(conn, base, since_days=since_days)
+    console.print(f"Export ready: [green]{base.resolve()}[/green]")
+    console.print(f"  articles={stats['article_count']} claims={stats['claim_count']} topics={stats['topic_count']}")
+
+
+@cli.command("ingest-gdelt")
+@click.option("--query", required=True, help='GDELT query, e.g. ukraine or "(climate OR warming)"')
+@click.option(
+    "--start",
+    "start_s",
+    required=True,
+    help="Start (UTC): YYYY-MM-DD or ISO datetime",
+)
+@click.option(
+    "--end",
+    "end_s",
+    required=True,
+    help="End (UTC): YYYY-MM-DD or ISO datetime",
+)
+@click.option(
+    "--chunk-hours",
+    default=48,
+    type=int,
+    help="Time slice per API call (smaller if you hit maxrecords=250 often)",
+)
+@click.option("--sleep", default=1.0, type=float, help="Seconds between GDELT requests (be polite)")
+@click.option(
+    "--max-articles",
+    default=None,
+    type=int,
+    help="Max articles to insert this run (after merge); default unlimited",
+)
+@click.option("--enrich/--no-enrich", default=False, help="Fetch full HTML body (slow); default off")
+@click.option(
+    "--since-days",
+    default=None,
+    type=int,
+    help="Same as fetch: skip insert if published older than N days",
+)
+@click.pass_obj
+def ingest_gdelt(
+    config: Config,
+    query: str,
+    start_s: str,
+    end_s: str,
+    chunk_hours: int,
+    sleep: float,
+    max_articles: int | None,
+    enrich: bool,
+    since_days: int | None,
+) -> None:
+    """Backfill from GDELT DOC 2.0 (free). Only the last ~90 days are searchable; range is clipped."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    start = _parse_utc_datetime_start(start_s)
+    end = _parse_utc_datetime_end(end_s)
+    console.print(
+        f"GDELT policy: only about the last [cyan]{GDELT_MAX_LOOKBACK_DAYS}[/cyan] days from “now”; "
+        "each request returns at most 250 hits."
+    )
+    entries, warnings = iter_gdelt_timerange(
+        query,
+        start,
+        end,
+        chunk_hours=chunk_hours,
+        sleep_seconds=sleep,
+        timeout=float(config.fetch_timeout_seconds) + 35.0,
+    )
+    for w in warnings:
+        logging.warning("%s", w)
+    if max_articles is not None and max_articles > 0:
+        entries = entries[:max_articles]
+    console.print(f"GDELT returned [green]{len(entries)}[/green] unique URLs after merge.")
+
+    skip_domains = {d.lower() for d in (config.skip_enrich_domains or [])}
+    storage = Storage(config.database)
+    inserted = 0
+    skipped = 0
+    with storage.conn() as conn:
+        for entry in entries:
+            existing = get_article_by_url(conn, entry.link)
+            if existing:
+                skipped += 1
+                continue
+            if _entry_outside_since_window(entry, since_days):
+                skipped += 1
+                continue
+            body = entry.summary
+            if enrich and entry.link:
+                dom_skip = any(entry.link.lower().find(d) >= 0 for d in skip_domains)
+                if not dom_skip:
+                    try:
+                        body = extract_body(entry.link, timeout=config.fetch_timeout_seconds)
+                    except ExtractionError as e:
+                        logging.warning("Enrich skip %s: %s", entry.link[:60], e)
+            insert_article(conn, entry, body)
+            inserted += 1
+    console.print(f"Done. Inserted [green]{inserted}[/green], skipped (dup/age) [yellow]{skipped}[/yellow].")
 
 
 def _print_group_rich(articles: list[dict], claims_meta: list) -> None:

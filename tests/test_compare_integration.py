@@ -128,16 +128,25 @@ def test_compare_generated_three_sources_two_agree(monkeypatch: pytest.MonkeyPat
 
 def test_parse_story_and_claims_json() -> None:
     raw = '''{"summary": "The minister resigned. The government announced a successor.", "claims": ["The minister resigned on Monday.", "A new minister was appointed."]}'''
-    summary, claims = _parse_story_and_claims_from_response(raw)
+    summary, claims, incident = _parse_story_and_claims_from_response(raw)
     assert "minister resigned" in summary
     assert "successor" in summary or "government" in summary
     assert "resigned on Monday" in claims[0]
     assert len(claims) == 2
+    assert incident.get("action") == ""
+
+
+def test_parse_story_and_claims_structured_incident() -> None:
+    raw = """{"synopsis":"Leaders met in Brussels.","incident":{"action":"EU leaders agreed on a joint statement.","driver":"Not stated in the text.","outcome":"Statement to be signed Friday.","timeframe":"March 2026.","actor":"European Council","affected":"Member states","additional_context":"None."},"claims":["The vote was unanimous."]}"""
+    synopsis, claims, incident = _parse_story_and_claims_from_response(raw)
+    assert "Brussels" in synopsis
+    assert incident.get("actor") == "European Council"
+    assert len(claims) == 1
 
 
 def test_parse_story_and_claims_claims_only() -> None:
     raw = '''{"claims": ["Fact one here.", "Fact two here."]}'''
-    summary, claims = _parse_story_and_claims_from_response(raw)
+    summary, claims, incident = _parse_story_and_claims_from_response(raw)
     assert summary == ""
     assert len(claims) == 2
     assert "Fact one" in claims[0]
@@ -148,6 +157,7 @@ def test_parse_story_and_claims_fallback_lines() -> None:
     First factual sentence here with enough length.
     Second factual sentence here as well.
     """
-    summary, claims = _parse_story_and_claims_from_response(raw)
+    summary, claims, incident = _parse_story_and_claims_from_response(raw)
     assert summary == ""
     assert len(claims) >= 1
+    assert not any(incident.values())
