@@ -2,6 +2,9 @@
 
 Compare news headlines and articles across RSS feeds: see how coverage differs and which claims are agreed, uncorroborated, or in conflict. No paid APIs or subscriptions; local LLMs only (optional, for claim extraction).
 
+
+![Demo screenshot](./demo.png)
+
 ## Setup
 
 **Poetry (recommended)**
