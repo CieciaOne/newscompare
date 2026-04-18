@@ -77,6 +77,10 @@ Set in `config.yaml` under `llm`:
 - `provider: ollama`
 - `model: llama3.2:3b`
 
+
+![Demo screenshot](./demo.png)
+
+
 Run `newscompare compare`; the first run will download the embedding model (sentence-transformers) and may take a moment.
 
 **Comparison:** Claims are matched by embedding similarity. **Agreed** = the same fact is stated by at least one *other source* (same outlet doesn’t count). **Conflict** = similar claim but contradictory (e.g. “11 dead” vs “no casualties”, or negation). Default `claim_match_threshold` is **0.60**; raise it (e.g. 0.72) if you get false agreed, lower it if cross-source paraphrases still show uncorroborated. Set `LOG_LEVEL=DEBUG` to log similarity stats.
