@@ -9,6 +9,8 @@ from typing import Any
 import numpy as np
 
 from newscompare.claims_util import normalize_claim
+from newscompare.compare_llm import pair_key, resolve_pair_verdicts
+from newscompare.config import LLMConfig
 from newscompare.embeddings import embed_texts, cosine_similarity_matrix
 from newscompare.storage import get_articles_with_claims
 from newscompare.story_schema import build_claim_embedding_text, build_same_story_embedding_text, parse_story_incident_json
@@ -30,38 +32,6 @@ class ClaimWithMeta:
     conflicting_source_id: str | None = None
 
 
-def _likely_same_fact(claim_i: str, claim_j: str) -> bool:
-    """
-    Heuristic: reject pairs that are clearly about different events (e.g. one about
-    a death, the other about relations/links) to avoid false agreements from shared
-    names (e.g. "Chamenei" in both but different people/events).
-    """
-    import re
-    lower_i = claim_i.lower()
-    lower_j = claim_j.lower()
-    # Death / casualty event markers
-    death_related = (
-        "zginął", "zginęła", "zmarł", "zmarła", "died", "death", "śmierć", "dead",
-        "killed", "casualties", "ofiary", "nie żyje",
-    )
-    # Different kind of event: relations, links, roles, initiatives (not the same fact as death)
-    other_event = (
-        "powiązania", "links", "link", "relations", "związek", "bliskie",
-        "inicjatyw", "opublikował", "wpis", "księg", "ocenił", "jako",
-        "przywódc", "leader", "succeeded", "następc",
-    )
-    has_death_i = any(d in lower_i for d in death_related)
-    has_death_j = any(d in lower_j for d in death_related)
-    has_other_i = any(o in lower_i for o in other_event)
-    has_other_j = any(o in lower_j for o in other_event)
-    # One claim is about death, the other about something else (links, initiative, etc.) -> different facts
-    if has_death_i and has_other_j and not has_death_j:
-        return False
-    if has_death_j and has_other_i and not has_death_i:
-        return False
-    return True
-
-
 def _match_claims(
     article_claims: list[tuple[str, str, str]],  # (article_id, source_id, claim_text)
     embeddings: np.ndarray,
@@ -69,9 +39,8 @@ def _match_claims(
     same_story_pairs: set[tuple[str, str]] | None = None,
 ) -> list[list[int]]:
     """
-    For each claim index, return list of other claim indices that are matches (same fact).
-    Requires similarity >= threshold and _likely_same_fact. If same_story_pairs is set, only
-    match claims from articles that are in the set (same story).
+    For each claim index, return list of other claim indices with embedding similarity >= threshold.
+    Optional same_story_pairs: only match claims from articles in that relation.
     """
     n = len(article_claims)
     if n == 0:
@@ -81,13 +50,10 @@ def _match_claims(
     for i in range(n):
         row: list[int] = []
         aid_i = article_claims[i][0]
-        text_i = article_claims[i][2]
         for j in range(n):
             if i == j:
                 continue
             if sim[i, j] < threshold:
-                continue
-            if not _likely_same_fact(text_i, article_claims[j][2]):
                 continue
             if same_story_pairs is not None:
                 aid_j = article_claims[j][0]
@@ -96,68 +62,6 @@ def _match_claims(
             row.append(j)
         matches.append(row)
     return matches
-
-
-def _detect_numeric_conflict(claim_i: str, claim_j: str) -> bool:
-    """
-    Detect fact contradictions: one says N dead/casualties/injured, other says no/zero.
-    E.g. "11 dead" vs "no casualties", "confirmed 0" vs "multiple casualties".
-    """
-    import re
-    lower_i = claim_i.lower()
-    lower_j = claim_j.lower()
-    # Phrases indicating zero / none
-    zero_phrases = (
-        "no casualties", "no dead", "no deaths", "no one killed", "no one dead",
-        "zero casualties", "zero dead", "0 dead", "0 casualties", "no injuries",
-        "confirmed no", "no confirmed", "didn't kill", "no one injured",
-    )
-    # Numbers (digits) in claim
-    def has_positive_number(t: str) -> bool:
-        # Skip years (4 digits) and look for counts
-        for m in re.finditer(r"\b(\d{1,3})\s*(dead|killed|casualties|injured|wounded|deadly)\b", t, re.I):
-            if int(m.group(1)) > 0:
-                return True
-        if re.search(r"\b(multiple|dozens?|hundreds?|several)\s+(dead|killed|casualties|injured)", t, re.I):
-            return True
-        return False
-
-    has_zero_i = any(z in lower_i for z in zero_phrases)
-    has_zero_j = any(z in lower_j for z in zero_phrases)
-    has_num_i = has_positive_number(lower_i)
-    has_num_j = has_positive_number(lower_j)
-    if has_zero_i and has_num_j:
-        return True
-    if has_num_i and has_zero_j:
-        return True
-    return False
-
-
-def _detect_conflict(claim_i: str, claim_j: str, sim: float) -> bool:
-    """
-    Same fact (high sim) but contradictory. Require sim >= 0.78 so we don't mark
-    unrelated claims (different topics) as conflict just because they share words.
-    """
-    if sim < 0.74:
-        return False
-    if _detect_numeric_conflict(claim_i, claim_j):
-        return True
-    negations = ("not", "no ", "never", "none", "neither", "n't ", "didn't", "won't", "cannot")
-    lower_i = claim_i.lower()
-    lower_j = claim_j.lower()
-    has_neg_i = any(n in lower_i for n in negations)
-    has_neg_j = any(n in lower_j for n in negations)
-    if has_neg_i != has_neg_j:
-        return True
-    if ("increase" in lower_i or "rose" in lower_i or "grew" in lower_i) and (
-        "decrease" in lower_j or "fell" in lower_j or "dropped" in lower_j
-    ):
-        return True
-    if ("decrease" in lower_i or "fell" in lower_i or "dropped" in lower_i) and (
-        "increase" in lower_j or "rose" in lower_j or "grew" in lower_j
-    ):
-        return True
-    return False
 
 
 def _connected_components(n: int, other_source_matches: list[list[int]]) -> list[list[int]]:
@@ -185,6 +89,20 @@ def _connected_components(n: int, other_source_matches: list[list[int]]) -> list
     return list(comps.values())
 
 
+def _collect_candidate_pairs(match_indices: list[list[int]], n: int) -> list[tuple[int, int]]:
+    seen: set[tuple[int, int]] = set()
+    out: list[tuple[int, int]] = []
+    for i in range(n):
+        for j in match_indices[i]:
+            if i == j:
+                continue
+            pk = pair_key(i, j)
+            if pk not in seen:
+                seen.add(pk)
+                out.append(pk)
+    return out
+
+
 def compare_claims(
     article_claims: list[tuple[str, str, str]],  # (article_id, source_id, claim_text)
     embedding_model: str = "all-MiniLM-L6-v2",
@@ -192,13 +110,18 @@ def compare_claims(
     article_summaries: dict[str, str] | None = None,
     story_similarity_threshold: float = 0.38,
     article_incidents: dict[str, dict[str, str]] | None = None,
+    llm_config: LLMConfig | None = None,
+    *,
+    claim_pair_heuristic_fallback: bool = False,
+    max_claim_pairs_for_llm: int | None = None,
 ) -> list[ClaimWithMeta]:
     """
     Embed all claims (each claim prefixed with structured incident when available), match by
-    similarity so paraphrases grounded in the same situation align better than raw wording alone.
+    similarity. Pairwise agree / conflict / unrelated: Ollama LLM when provider is ollama;
+    gaps or non-Ollama → unrelated unless claim_pair_heuristic_fallback (tests only).
 
     If article_summaries is provided, only match claims from articles whose synopsis+incident
-    texts are similar (same story). Conflict = matched and contradictory.
+    texts are similar (same story).
     """
     if not article_claims:
         return []
@@ -206,10 +129,12 @@ def compare_claims(
     n_articles = len(set(c[0] for c in article_claims))
     n_claims = len(article_claims)
     logger.info(
-        "Comparing %d claims from %d articles (threshold=%.2f)",
+        "Comparing %d claims from %d articles (threshold=%.2f, pair_llm=%s, heuristic_fallback=%s)",
         n_claims,
         n_articles,
         claim_match_threshold,
+        llm_config is not None and getattr(llm_config, "provider", "") == "ollama",
+        claim_pair_heuristic_fallback,
     )
 
     same_story_pairs: set[tuple[str, str]] | None = None
@@ -229,7 +154,6 @@ def compare_claims(
                         idx_i, idx_j = aid_to_idx[ai], aid_to_idx[aj]
                         if summary_sim[idx_i, idx_j] >= story_similarity_threshold:
                             same_story_pairs.add((ai, aj))
-            # Articles with no summary: allow matching with any other article (no story filter)
             all_aids = set(c[0] for c in article_claims)
             for aid in all_aids:
                 if aid not in aids_with_summary:
@@ -237,7 +161,7 @@ def compare_claims(
                         same_story_pairs.add((aid, other))
                         same_story_pairs.add((other, aid))
             if not same_story_pairs:
-                same_story_pairs = None  # no constraint
+                same_story_pairs = None
 
     inc_map = article_incidents or {}
     texts = [
@@ -265,15 +189,39 @@ def compare_claims(
                 sum(1 for s in off_diag if s >= claim_match_threshold),
             )
 
+    candidate_pairs = _collect_candidate_pairs(match_indices, n)
+    n_pairs_raw = len(candidate_pairs)
+    if max_claim_pairs_for_llm is not None and n_pairs_raw > max_claim_pairs_for_llm:
+        scored: list[tuple[float, tuple[int, int]]] = []
+        for a, b in candidate_pairs:
+            scored.append((float(sim_matrix[a, b]), (a, b)))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        candidate_pairs = [p for _, p in scored[:max_claim_pairs_for_llm]]
+        logger.info(
+            "Claim-pair cap: %d → %d pairs (kept highest embedding similarity; may miss rare edges)",
+            n_pairs_raw,
+            len(candidate_pairs),
+        )
+
+    verdicts = resolve_pair_verdicts(
+        candidate_pairs,
+        article_claims,
+        sim_matrix,
+        llm_config,
+        heuristic_fallback=claim_pair_heuristic_fallback,
+    )
+
+    def vpair(i: int, j: int) -> str:
+        return verdicts.get(pair_key(i, j), "unrelated")
+
     other_source_matches = [
-        [j for j in match_indices[i] if article_claims[j][1] != article_claims[i][1]]
+        [j for j in match_indices[i] if article_claims[j][1] != article_claims[i][1] and vpair(i, j) == "agree"]
         for i in range(n)
     ]
     conflict_with: list[tuple[str | None, str | None]] = [(None, None)] * n
     for i in range(n):
-        _, sid, text = article_claims[i]
         for j in match_indices[i]:
-            if _detect_conflict(text, article_claims[j][2], sim_matrix[i, j]):
+            if vpair(i, j) == "conflict":
                 conflict_with[i] = (article_claims[j][2], article_claims[j][1])
                 break
 
@@ -358,6 +306,10 @@ def run_comparison_for_group(
     article_ids: list[str],
     embedding_model: str,
     claim_match_threshold: float,
+    llm_config: LLMConfig | None = None,
+    *,
+    claim_pair_heuristic_fallback: bool = False,
+    max_claim_pairs_for_llm: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[ClaimWithMeta]]:
     """
     Load claims for given article ids from storage, run compare_claims, return
@@ -384,7 +336,6 @@ def run_comparison_for_group(
         block = build_same_story_embedding_text((a.get("story_summary") or "").strip(), inc)
         if block.strip():
             article_summaries[aid] = block
-    # Build flat list (article_id, source_id, claim_text)
     article_claims: list[tuple[str, str, str]] = []
     for aid in article_ids:
         sid = next((a.get("source_id", "") for a in articles if a.get("id") == aid), "")
@@ -401,5 +352,8 @@ def run_comparison_for_group(
         claim_match_threshold=claim_match_threshold,
         article_summaries=article_summaries or None,
         article_incidents=article_incidents or None,
+        llm_config=llm_config,
+        claim_pair_heuristic_fallback=claim_pair_heuristic_fallback,
+        max_claim_pairs_for_llm=max_claim_pairs_for_llm,
     )
     return articles, claims_meta

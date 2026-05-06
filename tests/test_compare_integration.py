@@ -19,7 +19,9 @@ def test_normalize_claim_trim_and_collapse() -> None:
 def test_normalize_claims_dedup_and_cap() -> None:
     out = normalize_claims(["  A  ", "A", "B", "B", "C"])
     assert out == ["A", "B", "C"]
-    assert len(normalize_claims(["x"] * 25)) <= 20
+    from newscompare.claims_util import CLAIM_CAP
+
+    assert len(normalize_claims(["x"] * 25)) <= CLAIM_CAP
 
 
 # --- Comparison with real embeddings (slower) ---
@@ -32,7 +34,7 @@ def test_compare_real_embeddings_same_fact_agreed() -> None:
         ("art1", "BBC", "Israel launched strikes on Tehran on April 19."),
         ("art2", "NYT", "Israel launched strikes on Tehran on April 19."),
     ]
-    result = compare_claims(article_claims, claim_match_threshold=0.74)
+    result = compare_claims(article_claims, claim_match_threshold=0.74, claim_pair_heuristic_fallback=True)
     assert len(result) >= 1
     agreed = [r for r in result if r.label == "agreed"]
     assert len(agreed) >= 1, "Same fact from two sources should produce at least one agreed"
@@ -49,7 +51,7 @@ def test_compare_real_embeddings_paraphrase_agreed() -> None:
         ("art1", "SourceA", "The minister resigned on Monday."),
         ("art2", "SourceB", "On Monday the minister announced his resignation."),
     ]
-    result = compare_claims(article_claims, claim_match_threshold=0.74)
+    result = compare_claims(article_claims, claim_match_threshold=0.74, claim_pair_heuristic_fallback=True)
     agreed = [r for r in result if r.label == "agreed"]
     uncorr = [r for r in result if r.label == "uncorroborated"]
     # We expect either one agreed or two uncorroborated depending on embedding similarity
@@ -65,7 +67,7 @@ def test_compare_real_embeddings_different_facts_mostly_uncorroborated() -> None
         ("art2", "B", "A fire broke out at the factory."),
         ("art3", "C", "The president signed a new law."),
     ]
-    result = compare_claims(article_claims, claim_match_threshold=0.74)
+    result = compare_claims(article_claims, claim_match_threshold=0.74, claim_pair_heuristic_fallback=True)
     agreed = [r for r in result if r.label == "agreed"]
     assert len(agreed) == 0, "Unrelated facts should not be grouped as agreed"
     assert len(result) == 3
@@ -86,7 +88,7 @@ def test_compare_generated_same_claim_two_sources(monkeypatch: pytest.MonkeyPatc
         ("gen1", "GeneratedSource1", "Event X occurred on date Y."),
         ("gen2", "GeneratedSource2", "Event X occurred on date Y."),
     ]
-    result = compare_claims(article_claims, claim_match_threshold=0.74)
+    result = compare_claims(article_claims, claim_match_threshold=0.74, claim_pair_heuristic_fallback=True)
     assert len(result) == 1
     assert result[0].label == "agreed"
     assert len(result[0].matched_sources) == 1
@@ -114,7 +116,7 @@ def test_compare_generated_three_sources_two_agree(monkeypatch: pytest.MonkeyPat
         ("a2", "S2", "The deal was signed."),
         ("a3", "S3", "Weather was sunny."),
     ]
-    result = compare_claims(article_claims, claim_match_threshold=0.72)
+    result = compare_claims(article_claims, claim_match_threshold=0.72, claim_pair_heuristic_fallback=True)
     agreed = [r for r in result if r.label == "agreed"]
     uncorr = [r for r in result if r.label == "uncorroborated"]
     assert len(agreed) == 1
@@ -134,6 +136,19 @@ def test_parse_story_and_claims_json() -> None:
     assert "resigned on Monday" in claims[0]
     assert len(claims) == 2
     assert incident.get("action") == ""
+
+
+def test_parse_story_article_sentiment_in_synopsis() -> None:
+    raw = (
+        '{"synopsis":"The chamber approved the measure.",'
+        '"article_sentiment":"Sympathetic to the ruling coalition",'
+        '"incident":{"action":"Vote held.","driver":"Not stated in the text.","outcome":"Passed.",'
+        '"timeframe":"Monday.","actor":"Parliament","affected":"Citizens","additional_context":"None."},'
+        '"claims":["The bill passed on Monday."]}'
+    )
+    synopsis, claims, incident = _parse_story_and_claims_from_response(raw)
+    assert "Sympathetic" in synopsis or "Editorial stance" in synopsis
+    assert claims and "Monday" in claims[0]
 
 
 def test_parse_story_and_claims_structured_incident() -> None:

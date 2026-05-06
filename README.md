@@ -1,6 +1,6 @@
 # NewsCompare
 
-Compare news headlines and articles across RSS feeds: see how coverage differs and which claims are agreed, uncorroborated, or in conflict. No paid APIs or subscriptions; local LLMs only (optional, for claim extraction).
+Compare news headlines and articles across RSS feeds: see how coverage differs and which claims are agreed, uncorroborated, or in conflict. Optional **GDELT** backfill (free, no API key) adds recent articles by keyword and date. **Export** produces JSON/CSV for offline analysis. No paid subscriptions; local LLMs only (optional, for extraction and comparison).
 
 
 ![Demo screenshot](./demo.png)
@@ -37,21 +37,40 @@ cp config.example.yaml config.yaml
 # For better extraction/labels, use a stronger Ollama model (e.g. qwen2.5:7b).
 ```
 
-See **[docs/PIPELINE.md](docs/PIPELINE.md)** for how fetch, grouping, topic extraction, and comparison work (and why past articles can seem “lost” until you use the Timeline view).
+See **[docs/PIPELINE.md](docs/PIPELINE.md)** for how fetch, grouping, topic extraction, and comparison work (and why past articles can seem “lost” until you use the Timeline view). See **[docs/ANALYSIS_PIPELINE.md](docs/ANALYSIS_PIPELINE.md)** for GDELT ingest, batch export, and tuning.
 
 ## Usage
 
 - **Fetch** articles from configured feeds (and optionally enrich with full body from article URL):
   ```bash
   poetry run newscompare fetch
+  poetry run newscompare fetch --since-days 90   # optional: skip inserts older than N days (by feed date)
   # or: python -m newscompare.cli fetch
   ```
 
-- **Compare** (group articles, extract claims via local LLM if installed, then compare):
+- **Ingest GDELT** (optional backfill by keyword + date range; same SQLite DB, dedupe by URL; ~90-day rolling window per GDELT policy; default no HTML enrich):
+  ```bash
+  poetry run newscompare ingest-gdelt --query "ukraine" --start 2026-04-01 --end 2026-04-15 --chunk-hours 24 --max-articles 500
+  ```
+
+- **Translate** non-English articles to English (helps topics and claims):
+  ```bash
+  poetry run newscompare translate --hours 168 --limit 500
+  ```
+
+- **Compare** (group articles, extract structured story + claims via local LLM if installed, then compare):
   ```bash
   poetry run newscompare compare
   poetry run newscompare compare --hours 48 --json
+  poetry run newscompare compare --hours 48 --json -o exports/compare.json
   ```
+
+- **Export** analysis bundle (`stats.json`, `articles.jsonl`, `claims.csv`, `topics.json`):
+  ```bash
+  poetry run newscompare export --since-days 90 --out-dir exports/my_run
+  ```
+
+- **One-shot pipeline** (fetch → translate → topics → export): `./scripts/pipeline_analysis.sh 90`
 
 - **Extract topics** (batch: cluster articles + LLM labels; used by the web UI for topic-based view):
   ```bash
@@ -86,7 +105,9 @@ Set in `config.yaml` under `llm`:
 
 Run `newscompare compare`; the first run will download the embedding model (sentence-transformers) and may take a moment.
 
-**Comparison:** Claims are matched by embedding similarity. **Agreed** = the same fact is stated by at least one *other source* (same outlet doesn’t count). **Conflict** = similar claim but contradictory (e.g. “11 dead” vs “no casualties”, or negation). Default `claim_match_threshold` is **0.60**; raise it (e.g. 0.72) if you get false agreed, lower it if cross-source paraphrases still show uncorroborated. Set `LOG_LEVEL=DEBUG` to log similarity stats.
+**Extraction (LLM):** Each article can get a short **synopsis**, a structured **incident** block (action, driver, outcome, timeframe, actor, affected, context), and a list of **atomic claims** — stored in SQLite (`story_summary`, `story_incident_json`, `claims`).
+
+**Comparison:** Claims are matched with **sentence-transformers** embeddings. When a structured incident exists, the embedding includes that **situation** so paraphrases align better than raw wording alone. “Same story” gating can use synopsis + incident. **Agreed** = the same fact from at least one *other* `source_id`. **Conflict** = high similarity but contradictory cues (numbers, negation, etc.). Tune **`compare.claim_match_threshold`** in `config.yaml` (often **0.60–0.75**; higher = stricter matching, fewer false “agreed”). Set `LOG_LEVEL=DEBUG` to log similarity stats.
 
 ## Fetch logs explained
 
@@ -106,15 +127,20 @@ When you run `newscompare fetch`:
 - `src/newscompare/` — package
   - `config.py` — YAML config
   - `feed_fetcher.py` — RSS/Atom fetch
+  - `gdelt_ingest.py` — GDELT DOC 2.0 article list ingest
   - `article_extractor.py` — full-text extraction (goose3)
   - `storage.py` — SQLite
   - `grouping.py` — time + title similarity grouping
-  - `llm_dataset.py` — Ollama claim extraction
+  - `llm_dataset.py` — Ollama: synopsis + structured incident + claims
+  - `story_schema.py` — incident JSON helpers and embedding text builders
+  - `export_bundle.py` — export stats / JSONL / CSV for analysis
   - `embeddings.py` — sentence-transformers
   - `compare.py` — claim matching and agree/uncorroborated/conflict
-  - `cli.py` — fetch / compare / serve
+  - `cli.py` — CLI entrypoint
   - `web/` — FastAPI app and templates
+- `scripts/pipeline_analysis.sh` — fetch → translate → extract-topics → export
 - `tests/` — pytest
+- `docs/PIPELINE.md`, `docs/ANALYSIS_PIPELINE.md`
 - `IMPLEMENTATION_GUIDELINES.md` — full spec
 
 ## Tests

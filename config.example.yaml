@@ -27,16 +27,16 @@ skip_enrich_domains:
 
 database: ./newscompare.db
 fetch_timeout_seconds: 10
-# LLM used for story/claim extraction and topic labels. For better quality, use a larger model
-# (e.g. Qwen 2.5/3.5 via Ollama if available: https://huggingface.co/collections/Qwen/qwen35).
+# LLM: extraction, topic labels, claim-pair comparison (Ollama). Pull the model tag locally first.
 llm:
   provider: ollama
-  model: llama3.2:3b   # e.g. qwen2.5:7b for better extraction
-  max_tokens: 1024
-  claim_extract_prompt: |
-    Extract only factual claims from the following news text, one short sentence per claim.
-    Output a JSON object with a single key "claims" containing a list of strings. No commentary.
-    Text:
+  # See https://ollama.com/library — common: gemma3:4b. For E4B-tagged variant: gemma3n:e4b (not "gemma4:e4b").
+  model: gemma4:e4b
+  # Higher ceiling so JSON (synopsis + incident + claims) is not cut mid-field; internal cap 4096 tokens.
+  max_tokens: 3072
+  # Leave empty to use the built-in DEFAULT_PROMPT in llm_dataset.py (geopolitics-focused claims + synopsis + incident).
+  claim_extract_prompt: ""
+
 embedding_model: all-MiniLM-L6-v2
 grouping:
   hours_window: 24

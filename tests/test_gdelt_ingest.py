@@ -67,6 +67,7 @@ def test_fetch_gdelt_chunk_parses_json() -> None:
     }
     raw = json.dumps(fake_json)
     mock_resp = MagicMock()
+    mock_resp.status_code = 200
     mock_resp.text = raw
     mock_resp.json.return_value = fake_json
     mock_resp.raise_for_status = MagicMock()
@@ -82,6 +83,7 @@ def test_fetch_gdelt_chunk_parses_json() -> None:
     assert len(r.entries) == 1
     assert r.entries[0].title == "T1"
     assert not r.truncated
+    assert r.rate_limit_retries == 0
 
 
 def test_to_gdelt_ts() -> None:

@@ -15,25 +15,29 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROMPT = """You are a news desk editor. Read the article and output ONE JSON object only (no markdown fences).
 
-Tone: descriptive, direct, and decisive — state what happened as plainly as the text allows. Do not hedge with "may" unless the source does. If the article does not state a field, write exactly: "Not stated in the text."
+Tone: descriptive, direct, decisive — state what happened as plainly as the text allows. Do not hedge with "may" unless the source does. If the article does not state a field, write exactly: "Not stated in the text."
+
+**Scope for claims:** This project compares **international politics, war, armed conflict, security, diplomacy, sanctions, and major state or multilateral decisions**. In "claims", prioritize facts in that space (actors, military or political moves, casualties, borders, treaties, votes, sanctions, aid, energy/security policy). If the piece is **only** about sports, celebrity, consumer gadgets, or purely local human-interest with **no** geopolitical or conflict angle, return an **empty "claims" array** [] and keep synopsis brief. If the piece mixes fluff with one geopolitical fact, keep only the geopolitical claims.
 
 Use this schema (all string values; "claims" is an array of strings):
 
-- "synopsis": 2–4 sentences. The tight overview: who did what, why it matters, and the upshot. Same firm tone as wire copy.
+- "synopsis": 2–4 sentences. Who did what, why it matters, upshot. Wire copy style.
 
-- "incident": an object with these keys (each value one or two sentences unless "additional_context" needs a short third sentence):
-  - "action": What occurred — the decisive event or move.
-  - "driver": Stated cause, trigger, motive, or precondition (or "Not stated in the text.").
-  - "outcome": Documented result, decision, toll, or declared impact.
-  - "timeframe": When — absolute dates/times or relative timing exactly as given.
-  - "actor": Who initiated or is responsible (person, institution, role).
-  - "affected": Who or what was acted upon — target, scope, victims, beneficiaries, jurisdiction.
-  - "additional_context": Location, legal basis, mechanism, figures, caveats, or other grounding the reader needs (or "None." if nothing material).
+- "article_sentiment": Optional one short phrase: the outlet's stance or tone toward the main subject (neutral factual, sympathetic, critical, alarmist, etc.). If not inferable, use "Not stated in the text."
 
-- "claims": array of atomic, verifiable facts — one short sentence each (who / what / when / numbers). No meta ("The article says…"). Facts another outlet could confirm or contradict. Maximum 20 items.
+- "incident": object with keys (each one or two sentences unless "additional_context" needs a short third):
+  - "action": decisive event or move.
+  - "driver": stated cause, trigger, motive, or precondition.
+  - "outcome": documented result, toll, decision, or impact.
+  - "timeframe": when, as given.
+  - "actor": who initiated or is responsible.
+  - "affected": target, scope, victims, beneficiaries, jurisdiction.
+  - "additional_context": place, mechanism, figures, caveats; or "None." if immaterial.
 
-Example shape (content is illustrative):
-{"synopsis":"…","incident":{"action":"…","driver":"…","outcome":"…","timeframe":"…","actor":"…","affected":"…","additional_context":"…"},"claims":["…","…"]}
+- "claims": at most **12** items. Each one **substantive** checkable fact another outlet could agree or dispute (who did what, numbers, decisions). One fact per string where possible. Omit scene-setting, duplicate angles, and non-geopolitical trivia per scope above. Phrase so semantic match across outlets is possible (entities + outcomes).
+
+Example shape (illustrative):
+{"synopsis":"…","article_sentiment":"…","incident":{"action":"…","driver":"…","outcome":"…","timeframe":"…","actor":"…","affected":"…","additional_context":"…"},"claims":["…","…"]}
 
 Text:
 """
@@ -45,7 +49,7 @@ Rules:
 - ONE fact per claim: each sentence must state a single verifiable fact (who did what, when, numbers, decisions). Do NOT combine multiple facts in one sentence.
 - Be SPECIFIC: include names, places, dates, or numbers so the claim cannot be confused with other stories.
 - Do NOT include meta or background. Only state facts that another source could confirm or contradict.
-- Output a JSON object with a single key "claims" containing a list of strings. No commentary.
+- Output a JSON object with a single key "claims" containing a list of strings (at most 12 substantive facts). No commentary.
 
 Text:
 """
@@ -90,6 +94,19 @@ def _parse_story_and_claims_from_response(raw: str) -> tuple[str, list[str], dic
             if syn_raw is not None:
                 synopsis = str(syn_raw).strip()
                 synopsis = re.sub(r"\s+", " ", synopsis)
+            sent_raw = (
+                obj.get("article_sentiment")
+                or obj.get("stance")
+                or obj.get("sentiment")
+                or obj.get("editorial_tone")
+            )
+            if sent_raw is not None:
+                sent = str(sent_raw).strip()
+                if sent and sent.lower() not in ("not stated in the text.", 'not stated in the text'):
+                    if synopsis:
+                        synopsis = f"Editorial stance: {sent}. {synopsis}"
+                    else:
+                        synopsis = f"Editorial stance: {sent}."
             inc_raw = obj.get("incident")
             if isinstance(inc_raw, dict):
                 incident = normalize_incident(inc_raw)
@@ -100,7 +117,7 @@ def _parse_story_and_claims_from_response(raw: str) -> tuple[str, list[str], dic
         pass
     if not claims:
         lines = [ln.strip() for ln in raw.split("\n") if ln.strip() and not ln.strip().startswith("{")]
-        claims = normalize_claims([ln for ln in lines if len(ln) > 10][:20])
+        claims = normalize_claims([ln for ln in lines if len(ln) > 10][:12])
     return synopsis, claims, incident
 
 
@@ -124,11 +141,13 @@ def extract_story_and_claims_ollama(text: str, config: LLMConfig) -> tuple[str, 
         raise RuntimeError("ollama package not installed. Install with: poetry install --extras llm") from None
 
     prompt = _get_prompt(config, text, with_summary=True)
+    # num_predict: room for full JSON without mid-sentence truncation (cap raised for larger models).
+    cap = min(max(config.max_tokens, 2048), 4096)
     try:
         response = ollama.chat(
             model=config.model,
             messages=[{"role": "user", "content": prompt}],
-            options={"num_predict": min(max(config.max_tokens, 1536), 2048)},
+            options={"num_predict": cap},
         )
     except Exception as e:
         logger.warning("Ollama chat failed: %s", e)

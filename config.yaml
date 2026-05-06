@@ -33,8 +33,9 @@ database: ./newscompare.db
 fetch_timeout_seconds: 10
 llm:
   provider: ollama   # ollama | llama_cpp
-  model: llama3.2:3b
-  max_tokens: 1024
+  # Must match a name from `ollama list` (e.g. gemma3:4b). There is no "gemma4:e4b"; for E4B quant use gemma3n:e4b after `ollama pull gemma3n:e4b`.
+  model: gemma4:e4b
+  max_tokens: 2048
   # Leave empty to use built-in prompt (recommended). Or override with rules: one fact per claim, no meta, be specific.
   claim_extract_prompt: ""
 embedding_model: all-MiniLM-L6-v2

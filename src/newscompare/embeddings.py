@@ -31,7 +31,8 @@ def embed_texts(texts: list[str], model_name: str = "all-MiniLM-L6-v2") -> np.nd
         m = get_model(model_name)
         return np.zeros((0, m.get_sentence_embedding_dimension()))
     model = get_model(model_name)
-    return model.encode(texts, convert_to_numpy=True)
+    # Larger batches speed up CPU/MPS/GPU; sentence-transformers batches internally.
+    return model.encode(texts, convert_to_numpy=True, batch_size=64, show_progress_bar=False)
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

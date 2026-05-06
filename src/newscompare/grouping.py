@@ -26,10 +26,16 @@ def group_articles(
     embedding_model: str,
     hours_window: int = 24,
     title_similarity_threshold: float = 0.5,
+    *,
+    source_ids: list[str] | None = None,
+    max_articles: int | None = None,
 ) -> list[list[dict[str, Any]]]:
     """
     Load articles from storage, group by time window then by title similarity.
     Returns list of groups; each group is a list of article dicts.
+
+    source_ids: if set, only articles whose source_id is in this list (after time filter).
+    max_articles: if set, cap how many recent articles are embedded/grouped (newest first).
     """
     with storage.conn() as conn:
         rows = conn.execute(
@@ -52,6 +58,13 @@ def group_articles(
     recent = [a for a in articles if _article_time(a) >= cutoff]
     if not recent:
         recent = articles[: 50]
+
+    if source_ids:
+        allow = {s.strip() for s in source_ids if s.strip()}
+        if allow:
+            recent = [a for a in recent if (a.get("source_id") or "") in allow]
+    if max_articles is not None and max_articles > 0:
+        recent = recent[:max_articles]
 
     titles = [content_for_compare(a)[0] or "" for a in recent]
     embs = embed_texts(titles, model_name=embedding_model)

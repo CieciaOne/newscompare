@@ -33,9 +33,29 @@
     .timeline { margin-bottom: 1.5rem; }
     .timeline-day { background: var(--bg-panel); border-left: 3px solid var(--link); padding: 0.75rem 1rem; margin-bottom: 0.5rem; border-radius: 0 8px 8px 0; }
     .timeline-day h4 { margin: 0 0 0.5rem 0; font-size: 0.875rem; color: var(--text-muted); }
-    .topic-articles-panel { max-height: min(50vh, 400px); display: flex; flex-direction: column; margin-bottom: 1rem; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-    .sources-table { display: flex; flex: 1; min-height: 0; width: 100%; }
-    .source-col { display: flex; flex-direction: column; flex: 1; min-width: 0; border-right: 1px solid var(--border); }
+    .topic-articles-panel { max-height: min(70vh, 560px); display: flex; flex-direction: column; margin-bottom: 1rem; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .sources-table {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      align-items: stretch;
+      gap: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+    .source-col {
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 auto;
+      width: clamp(200px, 28vw, 300px);
+      min-width: 200px;
+      max-width: 300px;
+      border-right: 1px solid var(--border);
+    }
     .source-col:last-child { border-right: none; }
     .source-col.hidden { display: none; }
     .source-col-header { padding: 0.5rem 0.75rem; background: var(--sidebar-bg); border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -114,8 +134,41 @@
     .view-toggle button { margin-right: 0.5rem; padding: 0.4rem 0.8rem; cursor: pointer; border: 1px solid var(--border); background: var(--bg-panel); border-radius: 4px; color: var(--text); }
     .view-toggle button.active { background: var(--link); color: #fff; border-color: var(--link); }
     .hint { font-size: 0.875rem; color: var(--text-muted); margin: -0.25rem 0 0.5rem 0; }
-    .source-toggles { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.5rem; align-items: center; }
-    .source-toggles .label { font-size: 0.875rem; color: var(--text-muted); margin-right: 0.25rem; }
+    .source-picker { margin-bottom: 0.5rem; }
+    .source-picker-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+      margin-bottom: 0.35rem;
+    }
+    .source-picker-toolbar input[type="search"] {
+      flex: 1 1 160px;
+      min-width: 140px;
+      max-width: 320px;
+      padding: 0.35rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      background: var(--bg-panel);
+      color: var(--text);
+    }
+    .source-picker-toolbar .btn-sm {
+      padding: 0.3rem 0.55rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-panel);
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .source-picker-toolbar .btn-sm:hover { border-color: var(--link); color: var(--link); }
+    .source-picker-toolbar .source-meta { font-size: 0.78rem; color: var(--text-muted); margin-left: 0.15rem; }
+    .source-toggles { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0; align-items: center; align-content: flex-start; }
+    .source-toggles.source-pills-scroll { max-height: 7rem; overflow-y: auto; padding: 0.2rem 0; }
+    .source-toggles .label { font-size: 0.875rem; color: var(--text-muted); margin-right: 0.25rem; flex-shrink: 0; }
+    .source-toggle-pill.pill-filtered-out { display: none !important; }
     .source-toggle-pill { padding: 0.3rem 0.6rem; border-radius: 999px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border); background: var(--sidebar-bg); }
     .source-toggle-pill:hover { opacity: 0.9; }
     .source-toggle-pill.active { background: var(--link); color: #fff; border-color: var(--link); }
@@ -155,8 +208,11 @@
         </div>
         <p>Select at least 2 articles from any columns, then click Compare. Hover article titles to inspect.</p>
         <h3>Articles by source</h3>
-        <p class="hint">Use the pills above to show or hide source columns. Select articles with the checkboxes, then click Compare selected.</p>
-        <div id="articles-source-toggles" class="source-toggles"></div>
+        <p class="hint">Pick sources below (many GDELT domains default hidden). Columns scroll horizontally; fixed width per source.</p>
+        <div class="source-picker">
+          <div id="articles-source-toolbar" class="source-picker-toolbar"></div>
+          <div id="articles-source-toggles" class="source-toggles source-pills-scroll"></div>
+        </div>
         <div id="articles-by-source" class="topic-articles-panel">
           <div id="articles-sources-table" class="sources-table"></div>
         </div>
@@ -180,8 +236,11 @@
             <input type="text" id="topic-search" placeholder="Search articles by title or source…" />
           </div>
           <h3>Articles by source</h3>
-          <p class="hint">Use the pills above to show or hide source columns and include them in the comparison. Hover article titles to inspect.</p>
-          <div id="source-toggles" class="source-toggles"></div>
+          <p class="hint">Pick sources below; columns scroll horizontally. Toggle pills to refetch comparison for that subset.</p>
+          <div class="source-picker">
+            <div id="topic-source-toolbar" class="source-picker-toolbar"></div>
+            <div id="source-toggles" class="source-toggles source-pills-scroll"></div>
+          </div>
           <div id="sources-panel" class="topic-articles-panel">
             <div id="sources-table" class="sources-table"></div>
           </div>
@@ -203,7 +262,55 @@
   <div id="inspect-popover"></div>
 
   <script>
-    const state = { topics: [], selectedTopicId: null, articles: [], topicData: null, enabledSources: new Set(), filterLabels: new Set(['agreed','conflict']), searchQuery: '', visibleSourcesAll: null };
+    const state = {
+      topics: [],
+      selectedTopicId: null,
+      articles: [],
+      topicData: null,
+      enabledSources: new Set(),
+      filterLabels: new Set(['agreed', 'conflict']),
+      searchQuery: '',
+      visibleSourcesAll: null,
+      articleSourceKeysSeen: null,
+      pillFilterArticles: '',
+      pillFilterTopic: '',
+    };
+    const SOURCE_MANY_THRESHOLD = 16;
+    const SOURCE_MAX_DEFAULT_COLS = 12;
+
+    function isGdeltSource(src) {
+      return String(src || '').startsWith('GDELT:');
+    }
+
+    function pickDefaultVisibleSources(sources, bySource, maxCols) {
+      maxCols = maxCols || SOURCE_MAX_DEFAULT_COLS;
+      if (sources.length <= maxCols) return new Set(sources);
+      const rss = sources.filter(s => !isGdeltSource(s)).sort();
+      const gdelt = sources
+        .filter(s => isGdeltSource(s))
+        .sort((a, b) => (bySource[b] || []).length - (bySource[a] || []).length);
+      const out = new Set();
+      rss.forEach(s => out.add(s));
+      let room = maxCols - out.size;
+      for (let i = 0; i < gdelt.length && room > 0; i++, room--) out.add(gdelt[i]);
+      if (out.size === 0) sources.slice(0, maxCols).forEach(s => out.add(s));
+      return out;
+    }
+
+    function pillMatchesFilter(src, filterText) {
+      const q = (filterText || '').trim().toLowerCase();
+      if (!q) return true;
+      return String(src || '').toLowerCase().indexOf(q) !== -1;
+    }
+
+    function findSourceCol(tableEl, src) {
+      if (!tableEl) return null;
+      return (
+        Array.from(tableEl.querySelectorAll('.source-col')).find(
+          c => c.getAttribute('data-source') === src,
+        ) || null
+      );
+    }
 
     function setMainView(panel) {
       document.getElementById('content-all-articles').classList.toggle('visible', panel === 'all-articles');
@@ -248,6 +355,7 @@
 
     function selectTopic(id) {
       state.selectedTopicId = id;
+      state.pillFilterTopic = '';
       setMainView('topic-detail');
       document.getElementById('topic-loading').style.display = 'block';
       document.getElementById('topic-content').style.display = 'none';
@@ -260,21 +368,29 @@
         const n = (detail.articles || []).length;
         loadingEl.textContent = n ? `Comparing ${n} article${n !== 1 ? 's' : ''}…` : 'Loading…';
       }).catch(() => {});
-      fetch(`/api/topics/${encodeURIComponent(id)}/compare`).then(r => r.json()).then(data => {
-        document.getElementById('topic-loading').style.display = 'none';
-        if (progressEl) progressEl.style.display = 'none';
-        document.getElementById('topic-content').style.display = 'block';
-        state.topicData = data;
-        state.enabledSources = new Set(data.sources || []);
-        state.filterLabels = new Set(['agreed','conflict']);
-        const topicSearchEl = document.getElementById('topic-search');
-        if (topicSearchEl) topicSearchEl.value = state.searchQuery || '';
-        renderTopicDetail(data);
-        setMainView('topic-detail');
-      }).catch(() => {
-        loadingEl.textContent = 'Failed to load topic.';
-        if (progressEl) progressEl.style.display = 'none';
-      });
+      fetch(`/api/topics/${encodeURIComponent(id)}/compare`)
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('topic-loading').style.display = 'none';
+          if (progressEl) progressEl.style.display = 'none';
+          document.getElementById('topic-content').style.display = 'block';
+          const srcList = data.sources || [];
+          const bySrc = data.by_source || {};
+          state.enabledSources =
+            srcList.length > SOURCE_MANY_THRESHOLD
+              ? pickDefaultVisibleSources(srcList, bySrc)
+              : new Set(srcList);
+          state.topicData = data;
+          state.filterLabels = new Set(['agreed', 'conflict']);
+          const topicSearchEl = document.getElementById('topic-search');
+          if (topicSearchEl) topicSearchEl.value = state.searchQuery || '';
+          renderTopicDetail(data);
+          setMainView('topic-detail');
+        })
+        .catch(() => {
+          loadingEl.textContent = 'Failed to load topic.';
+          if (progressEl) progressEl.style.display = 'none';
+        });
     }
 
     async function fetchCompareWithSources(sourcesList, regenerate) {
@@ -282,7 +398,7 @@
       if (!id || !sourcesList.length) return state.topicData;
       const params = new URLSearchParams({ sources: sourcesList.join(',') });
       if (regenerate) params.set('regenerate', '1');
-      const r = await fetch(`/api/topics/${id}/compare?${params}`);
+      const r = await fetch(`/api/topics/${encodeURIComponent(id)}/compare?${params}`);
       const data = await r.json();
       state.topicData = { ...state.topicData, claims: data.claims || [], articles: data.articles || [], by_source: data.by_source || state.topicData?.by_source, sources: data.sources || state.topicData?.sources };
       return state.topicData;
@@ -302,22 +418,81 @@
       const bySource = data.by_source || {};
       const allSources = data.sources || Object.keys(bySource);
       const query = (state.searchQuery || '').trim();
+      const tableEl = document.getElementById('sources-table');
+      const visCount = allSources.filter(s => state.enabledSources.has(s)).length;
+
+      const topicTb = document.getElementById('topic-source-toolbar');
+      if (topicTb) {
+        topicTb.innerHTML =
+          '<input type="search" id="topic-pill-filter" placeholder="Filter source list…" />' +
+          '<button type="button" class="btn-sm" data-topic-src="rss">Non-GDELT</button>' +
+          '<button type="button" class="btn-sm" data-topic-src="top">Top ' +
+          SOURCE_MAX_DEFAULT_COLS +
+          '</button>' +
+          '<button type="button" class="btn-sm" data-topic-src="all">Show all columns</button>' +
+          '<span class="source-meta">' +
+          visCount +
+          ' / ' +
+          allSources.length +
+          ' columns · toggle pill refetches comparison</span>';
+        const tpf = document.getElementById('topic-pill-filter');
+        if (tpf) {
+          tpf.value = state.pillFilterTopic || '';
+          tpf.oninput = () => {
+            state.pillFilterTopic = tpf.value;
+            renderTopicDetail();
+          };
+        }
+        topicTb.querySelectorAll('[data-topic-src]').forEach(btn => {
+          btn.onclick = () => {
+            const mode = btn.getAttribute('data-topic-src');
+            if (mode === 'rss') {
+              const rss = allSources.filter(s => !isGdeltSource(s));
+              state.enabledSources = new Set(rss.length ? rss : pickDefaultVisibleSources(allSources, bySource));
+            } else if (mode === 'top') {
+              state.enabledSources = pickDefaultVisibleSources(allSources, bySource);
+            } else if (mode === 'all') {
+              state.enabledSources = new Set(allSources);
+            }
+            renderTopicDetail();
+          };
+        });
+      }
 
       const togglesEl = document.getElementById('source-toggles');
       if (togglesEl) {
-        togglesEl.innerHTML = '<span class="label">Sources:</span>' + allSources.map(src => {
-          const enabled = state.enabledSources.has(src);
-          const count = (bySource[src] || []).length;
-          return '<span class="source-toggle-pill ' + (enabled ? 'active' : 'inactive') + '" data-source="' + escapeHtml(src) + '" title="' + (enabled ? 'Hide' : 'Show') + '">' + escapeHtml(src) + ' (' + count + ')</span>';
-        }).join('');
+        togglesEl.innerHTML =
+          '<span class="label">Sources:</span>' +
+          allSources
+            .map(src => {
+              const enabled = state.enabledSources.has(src);
+              const count = (bySource[src] || []).length;
+              const match = pillMatchesFilter(src, state.pillFilterTopic);
+              return (
+                '<span class="source-toggle-pill ' +
+                (enabled ? 'active' : 'inactive') +
+                (match ? '' : ' pill-filtered-out') +
+                '" data-source="' +
+                escapeHtml(src) +
+                '" title="' +
+                (enabled ? 'Hide & update comparison' : 'Show & update comparison') +
+                '">' +
+                escapeHtml(src) +
+                ' (' +
+                count +
+                ')</span>'
+              );
+            })
+            .join('');
         togglesEl.querySelectorAll('.source-toggle-pill').forEach(pill => {
           pill.onclick = async () => {
-            const src = pill.dataset.source;
+            const src = pill.getAttribute('data-source');
             const enabled = state.enabledSources.has(src);
-            if (enabled) state.enabledSources.delete(src); else state.enabledSources.add(src);
+            if (enabled) state.enabledSources.delete(src);
+            else state.enabledSources.add(src);
             pill.classList.toggle('active', state.enabledSources.has(src));
             pill.classList.toggle('inactive', !state.enabledSources.has(src));
-            const col = document.querySelector('.source-col[data-source="' + src + '"]');
+            const col = findSourceCol(tableEl, src);
             if (col) col.classList.toggle('hidden', !state.enabledSources.has(src));
             const list = [...state.enabledSources];
             const summaryEl = document.getElementById('claims-summary');
@@ -327,7 +502,7 @@
               if (progressEl) progressEl.style.display = 'block';
               const updated = await fetchCompareWithSources(list, false);
               if (progressEl) progressEl.style.display = 'none';
-              renderClaimsOnly(updated);
+              renderTopicDetail(updated);
             } else {
               renderClaimsOnly(state.topicData);
             }
@@ -335,7 +510,7 @@
         });
       }
 
-      const tableEl = document.getElementById('sources-table');
+      if (!tableEl) return;
       tableEl.innerHTML = '';
       allSources.forEach(src => {
         const enabled = state.enabledSources.has(src);
@@ -422,8 +597,16 @@
       const params = sourcesKey ? '?sources=' + encodeURIComponent(sourcesKey) : '';
       const r = await fetch('/api/topics/' + encodeURIComponent(topicId) + '/compare' + params);
       const data = await r.json();
+      const srcList = data.sources || [];
+      const bySrc = data.by_source || {};
+      if (sourcesKey) {
+        state.enabledSources = new Set(srcList);
+      } else if (srcList.length > SOURCE_MANY_THRESHOLD) {
+        state.enabledSources = pickDefaultVisibleSources(srcList, bySrc);
+      } else {
+        state.enabledSources = new Set(srcList);
+      }
       state.topicData = data;
-      state.enabledSources = new Set(data.sources || []);
       state.filterLabels = new Set(['agreed', 'conflict']);
       renderTopicDetail(data);
       setMainView('topic-detail');
@@ -640,29 +823,101 @@
         bySource[src].push(a);
       });
       const sources = Object.keys(bySource).sort();
-      if (state.visibleSourcesAll === null) state.visibleSourcesAll = new Set(sources);
-      sources.forEach(s => state.visibleSourcesAll.add(s));
+      const seen = (state.articleSourceKeysSeen ||= new Set());
+      if (state.visibleSourcesAll === null) {
+        state.visibleSourcesAll = pickDefaultVisibleSources(sources, bySource);
+        sources.forEach(s => seen.add(s));
+      } else {
+        for (const s of sources) {
+          if (!seen.has(s)) {
+            seen.add(s);
+            if (sources.length > 24 && isGdeltSource(s)) continue;
+            state.visibleSourcesAll.add(s);
+          }
+        }
+      }
+
+      const tableEl = document.getElementById('articles-sources-table');
+      const visCount = sources.filter(s => state.visibleSourcesAll.has(s)).length;
+      const artTb = document.getElementById('articles-source-toolbar');
+      if (artTb) {
+        artTb.innerHTML =
+          '<input type="search" id="articles-pill-filter" placeholder="Filter source list…" />' +
+          '<button type="button" class="btn-sm" data-art-src="rss">Non-GDELT</button>' +
+          '<button type="button" class="btn-sm" data-art-src="top">Top ' +
+          SOURCE_MAX_DEFAULT_COLS +
+          '</button>' +
+          '<button type="button" class="btn-sm" data-art-src="all">All columns</button>' +
+          '<span class="source-meta">' +
+          visCount +
+          ' / ' +
+          sources.length +
+          ' visible</span>';
+        const apf = document.getElementById('articles-pill-filter');
+        if (apf) {
+          apf.value = state.pillFilterArticles || '';
+          apf.oninput = () => {
+            state.pillFilterArticles = apf.value;
+            renderArticles();
+          };
+        }
+        artTb.querySelectorAll('[data-art-src]').forEach(btn => {
+          btn.onclick = () => {
+            const mode = btn.getAttribute('data-art-src');
+            if (mode === 'rss') {
+              const rss = sources.filter(s => !isGdeltSource(s));
+              state.visibleSourcesAll = new Set(
+                rss.length ? rss : pickDefaultVisibleSources(sources, bySource)
+              );
+            } else if (mode === 'top') {
+              state.visibleSourcesAll = pickDefaultVisibleSources(sources, bySource);
+            } else if (mode === 'all') {
+              state.visibleSourcesAll = new Set(sources);
+            }
+            renderArticles();
+          };
+        });
+      }
 
       const togglesEl = document.getElementById('articles-source-toggles');
       if (togglesEl) {
-        togglesEl.innerHTML = '<span class="label">Sources:</span>' + sources.map(src => {
-          const visible = state.visibleSourcesAll.has(src);
-          const count = (bySource[src] || []).length;
-          return '<span class="source-toggle-pill ' + (visible ? 'active' : 'inactive') + '" data-source="' + escapeHtml(src) + '" title="' + (visible ? 'Hide column' : 'Show column') + '">' + escapeHtml(src) + ' (' + count + ')</span>';
-        }).join('');
+        togglesEl.innerHTML =
+          '<span class="label">Sources:</span>' +
+          sources
+            .map(src => {
+              const visible = state.visibleSourcesAll.has(src);
+              const count = (bySource[src] || []).length;
+              const match = pillMatchesFilter(src, state.pillFilterArticles);
+              return (
+                '<span class="source-toggle-pill ' +
+                (visible ? 'active' : 'inactive') +
+                (match ? '' : ' pill-filtered-out') +
+                '" data-source="' +
+                escapeHtml(src) +
+                '" title="' +
+                (visible ? 'Hide column' : 'Show column') +
+                '">' +
+                escapeHtml(src) +
+                ' (' +
+                count +
+                ')</span>'
+              );
+            })
+            .join('');
         togglesEl.querySelectorAll('.source-toggle-pill').forEach(pill => {
           pill.onclick = () => {
-            const src = pill.dataset.source;
-            if (state.visibleSourcesAll.has(src)) state.visibleSourcesAll.delete(src); else state.visibleSourcesAll.add(src);
+            const src = pill.getAttribute('data-source');
+            if (state.visibleSourcesAll.has(src)) state.visibleSourcesAll.delete(src);
+            else state.visibleSourcesAll.add(src);
             pill.classList.toggle('active', state.visibleSourcesAll.has(src));
             pill.classList.toggle('inactive', !state.visibleSourcesAll.has(src));
-            const col = document.querySelector('#articles-sources-table .source-col[data-source="' + src + '"]');
+            const col = findSourceCol(tableEl, src);
             if (col) col.classList.toggle('hidden', !state.visibleSourcesAll.has(src));
           };
         });
       }
 
-      const tableEl = document.getElementById('articles-sources-table');
+      if (!tableEl) return;
       tableEl.innerHTML = '';
       sources.forEach(src => {
         const visible = state.visibleSourcesAll.has(src);
@@ -671,7 +926,7 @@
         col.dataset.source = src;
         const header = document.createElement('div');
         header.className = 'source-col-header';
-        header.textContent = src + ' (' + (bySource[src].length) + ')';
+        header.textContent = src + ' (' + bySource[src].length + ')';
         col.appendChild(header);
         const body = document.createElement('div');
         body.className = 'source-col-body';

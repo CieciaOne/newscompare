@@ -28,8 +28,8 @@ class FeedConfig:
 @dataclass
 class LLMConfig:
     provider: str = "ollama"
-    model: str = "llama3.2:3b"
-    max_tokens: int = 1024
+    model: str = "gemma3:4b"
+    max_tokens: int = 2048
     claim_extract_prompt: str = ""
 
 
@@ -85,8 +85,8 @@ class Config:
         llm_data = data.get("llm") or {}
         llm = LLMConfig(
             provider=llm_data.get("provider", "ollama"),
-            model=llm_data.get("model", "llama3.2:3b"),
-            max_tokens=llm_data.get("max_tokens", 1024),
+            model=llm_data.get("model", "gemma3:4b"),
+            max_tokens=llm_data.get("max_tokens", 2048),
             claim_extract_prompt=llm_data.get("claim_extract_prompt", "").strip(),
         )
         grp = data.get("grouping") or {}

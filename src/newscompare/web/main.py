@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from newscompare.compare import run_comparison_for_group
+from newscompare.logging_util import quiet_http_loggers
 from newscompare.config import Config
 from newscompare.grouping import group_articles
 from newscompare.llm_dataset import extract_story_and_claims
@@ -41,6 +42,7 @@ _static_dir = _web_dir / "static"
 
 
 def create_app(config: Config) -> FastAPI:
+    quiet_http_loggers()
     app = FastAPI(title="NewsCompare")
     app.state.config = config
     app.state.storage = Storage(config.database)
@@ -153,6 +155,7 @@ def create_app(config: Config) -> FastAPI:
             article_ids,
             config.embedding_model,
             config.compare.claim_match_threshold,
+            llm_config=config.llm,
         )
         def claim_to_dict(c):
             return {
@@ -310,6 +313,7 @@ def create_app(config: Config) -> FastAPI:
             article_ids,
             config.embedding_model,
             config.compare.claim_match_threshold,
+            llm_config=config.llm,
         )
         for a in articles:
             a["title"] = content_for_compare(a)[0] or a.get("title") or ""

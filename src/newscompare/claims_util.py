@@ -6,6 +6,8 @@ import re
 
 # Max length for stored/compared claim text (trim with ellipsis for display only; we store full normalized)
 CLAIM_MAX_LENGTH = 600
+# Fewer, higher-signal claims for cross-source semantic comparison (not trivia lists)
+CLAIM_CAP = 12
 
 
 def normalize_claim(text: str | None) -> str:
@@ -32,4 +34,4 @@ def normalize_claims(claims: list[str]) -> list[str]:
             continue
         seen.add(n)
         out.append(n)
-    return out[:20]  # cap at 20
+    return out[:CLAIM_CAP]

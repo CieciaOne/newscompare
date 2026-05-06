@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 
-from newscompare.compare import (
-    _match_claims,
-    _detect_conflict,
-    _likely_same_fact,
-    compare_claims,
+from newscompare.compare import _match_claims, compare_claims
+from newscompare.compare_pair_heuristic import (
+    heuristic_pair_verdict_text,
+    likely_same_fact_gate,
+    numeric_zero_conflict,
 )
 
 
@@ -55,13 +55,13 @@ def test_match_claims_below_threshold_no_match() -> None:
 
 
 def test_detect_conflict_negation() -> None:
-    assert _detect_conflict("Sales increased.", "Sales did not increase.", 0.85) is True
-    assert _detect_conflict("Sales increased.", "Sales increased again.", 0.85) is False
+    assert heuristic_pair_verdict_text("Sales increased.", "Sales did not increase.", 0.85) == "conflict"
+    assert heuristic_pair_verdict_text("Sales increased.", "Sales increased again.", 0.85) == "agree"
 
 
 def test_detect_conflict_increase_decrease() -> None:
-    assert _detect_conflict("Unemployment rose.", "Unemployment fell.", 0.8) is True
-    assert _detect_conflict("Unemployment rose.", "Unemployment rose again.", 0.8) is False
+    assert heuristic_pair_verdict_text("Unemployment rose.", "Unemployment fell.", 0.8) == "conflict"
+    assert heuristic_pair_verdict_text("Unemployment rose.", "Unemployment rose again.", 0.8) == "agree"
 
 
 def test_compare_claims_empty() -> None:
@@ -94,7 +94,7 @@ def test_compare_claims_two_same_claim_agreed(monkeypatch: pytest.MonkeyPatch) -
         ("a1", "BBC", "Israel launched strikes on Tehran."),
         ("a2", "NYT", "Israel launched strikes on Tehran."),
     ]
-    result = compare_claims(ac, claim_match_threshold=0.72)
+    result = compare_claims(ac, claim_match_threshold=0.72, claim_pair_heuristic_fallback=True)
     assert len(result) == 1
     assert result[0].label == "agreed"
     assert set(result[0].matched_sources) == {"NYT"} or set(result[0].matched_sources) == {"BBC"}
@@ -138,18 +138,18 @@ def test_match_claims_same_story_pairs_blocks_when_different_story() -> None:
 
 def test_likely_same_fact_death_vs_links() -> None:
     # Different events: death vs relations -> not same fact
-    assert _likely_same_fact(
+    assert likely_same_fact_gate(
         "Ali Chamenei zginął.",
         "Modżtaba Chamenei ma bliskie powiązania z IRGC.",
     ) is False
-    assert _likely_same_fact(
+    assert likely_same_fact_gate(
         "Modżtaba Chamenei ma powiązania z IRGC.",
         "Najwyższy przywódca Ali Chamenei zginął.",
     ) is False
 
 
 def test_likely_same_fact_both_death() -> None:
-    assert _likely_same_fact("Leader died.", "The president was killed.") is True
+    assert likely_same_fact_gate("Leader died.", "The president was killed.") is True
 
 
 def test_compare_claims_with_summaries_same_story_agreed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -173,6 +173,7 @@ def test_compare_claims_with_summaries_same_story_agreed(monkeypatch: pytest.Mon
         claim_match_threshold=0.72,
         article_summaries=summaries,
         story_similarity_threshold=0.35,
+        claim_pair_heuristic_fallback=True,
     )
     assert len(result) == 1
     assert result[0].label == "agreed"
@@ -196,7 +197,7 @@ def test_compare_claims_two_similar_above_threshold_agreed(monkeypatch: pytest.M
         ("a1", "S1", "Iran was attacked."),
         ("a2", "S2", "Iran came under attack."),
     ]
-    result = compare_claims(ac, claim_match_threshold=0.72)
+    result = compare_claims(ac, claim_match_threshold=0.72, claim_pair_heuristic_fallback=True)
     assert len(result) == 1
     assert result[0].label == "agreed"
 
@@ -238,7 +239,7 @@ def test_compare_claims_negation_conflict(monkeypatch: pytest.MonkeyPatch) -> No
         ("a1", "S1", "Sales increased."),
         ("a2", "S2", "Sales did not increase."),
     ]
-    result = compare_claims(ac, claim_match_threshold=0.72)
+    result = compare_claims(ac, claim_match_threshold=0.72, claim_pair_heuristic_fallback=True)
     assert len(result) == 2
     assert result[0].label == "conflict"
     assert result[1].label == "conflict"
@@ -257,7 +258,7 @@ def test_compare_claims_same_source_not_agreed(monkeypatch: pytest.MonkeyPatch) 
         ("a1", "NYT", "The U.S. Embassy in Baghdad was targeted."),
         ("a2", "NYT", "The U.S. Embassy in Baghdad was targeted."),
     ]
-    result = compare_claims(ac, claim_match_threshold=0.60)
+    result = compare_claims(ac, claim_match_threshold=0.60, claim_pair_heuristic_fallback=True)
     assert len(result) == 2
     assert result[0].label == "uncorroborated"
     assert result[1].label == "uncorroborated"
@@ -276,15 +277,14 @@ def test_compare_claims_matched_sources_populated(monkeypatch: pytest.MonkeyPatc
         ("a1", "BBC", "Israel struck oil facilities in Iran."),
         ("a2", "NYT", "Israel struck oil facilities in Iran."),
     ]
-    result = compare_claims(ac, claim_match_threshold=0.72)
+    result = compare_claims(ac, claim_match_threshold=0.72, claim_pair_heuristic_fallback=True)
     assert len(result) == 1
     assert result[0].label == "agreed"
     assert set(result[0].matched_sources) == {"NYT"} or set(result[0].matched_sources) == {"BBC"}
 
 
 def test_detect_numeric_conflict() -> None:
-    from newscompare.compare import _detect_numeric_conflict
-    assert _detect_numeric_conflict("11 dead in the strike", "No casualties reported") is True
-    assert _detect_numeric_conflict("No casualties", "Dozens of casualties") is True
-    assert _detect_numeric_conflict("No dead", "Multiple dead") is True
-    assert _detect_numeric_conflict("Both said no casualties", "No casualties") is False
+    assert numeric_zero_conflict("11 dead in the strike", "No casualties reported") is True
+    assert numeric_zero_conflict("No casualties", "Dozens of casualties") is True
+    assert numeric_zero_conflict("No dead", "Multiple dead") is True
+    assert numeric_zero_conflict("Both said no casualties", "No casualties") is False
